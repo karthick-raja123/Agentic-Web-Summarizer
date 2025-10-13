@@ -91,4 +91,5 @@ Audio explanations played directly in UI.Summaries downloaded as CSV for records
 Screenshots to include:
 Streamlit UI with entered topic.Displayed URLs.Generated summary.Audio player in UI.
 
+Linkedin: https://www.linkedin.com/feed/update/urn:li:activity:7352195417654136833/?originTrackingId=EM%2FLuMwSbxkTM4xkxwdq%2Fw%3D%3D
 
