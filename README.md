@@ -81,10 +81,11 @@ Reduced run-time failures during multiple topic searches.Helped in maintaining s
 
 ### Results and analysis
 
-<img width="1882" height="788" alt="image" src="https://github.com/user-attachments/assets/cc4f8821-09df-492e-b1f8-2bcee44c02b7" />
+<img width="1722" height="770" alt="image" src="https://github.com/user-attachments/assets/568b60c6-d626-44e2-a5b4-f35d1c0d1d5c" />
+<img width="1722" height="795" alt="image" src="https://github.com/user-attachments/assets/11ae7f15-241c-432b-9a71-65dfc5608d4b" />
 
 - Outputs obtained:
-- 
+  
 Top 3 relevant URLs fetched accurately for different topics.Clean, crisp 5-point summaries matching user queries.
 Audio explanations played directly in UI.Summaries downloaded as CSV for records.Quick runtime 
 Screenshots to include:
