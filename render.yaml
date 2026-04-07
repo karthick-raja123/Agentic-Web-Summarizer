@@ -1,0 +1,121 @@
+# Render Deployment Configuration
+# Deploy: Push to GitHub with this file, connect on render.com
+# Documentation: https://render.com/docs
+
+services:
+  # Backend API
+  - type: web
+    name: quickglance-api
+    env: python
+    plan: free  # Standard (paid) for production
+    
+    # Build Configuration
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api:app --host 0.0.0.0 --port $PORT --workers 2
+    
+    # Runtime
+    pythonVersion: 3.11
+    
+    # Environment Variables
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"
+      - key: API_HOST
+        value: "0.0.0.0"
+      - key: GOOGLE_API_KEY
+        scope: secret  # Set in Render Dashboard
+      - key: SERPER_API_KEY
+        scope: secret  # Set in Render Dashboard
+    
+    # Health Check
+    healthCheckPath: /health
+    
+    # Auto-Deploy
+    autoDeployBranch: main
+    
+    # Port
+    port: 8000
+    
+    # Disk
+    disk:
+      name: api-data
+      mountPath: /data
+      sizeGB: 1
+
+  # Frontend UI (Streamlit Cloud Alternative)
+  - type: web
+    name: quickglance-ui
+    env: python
+    plan: free
+    
+    # Build
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run streamlit_enhanced_app.py --server.port=$PORT --server.address=0.0.0.0
+    
+    # Runtime
+    pythonVersion: 3.11
+    
+    # Environment
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: STREAMLIT_SERVER_PORT
+        value: $PORT
+      - key: STREAMLIT_SERVER_ADDRESS
+        value: "0.0.0.0"
+      - key: STREAMLIT_SERVER_HEADLESS
+        value: "true"
+      - key: API_URL
+        value: https://quickglance-api.onrender.com  # Update with your API URL
+      - key: GOOGLE_API_KEY
+        scope: secret
+      - key: SERPER_API_KEY
+        scope: secret
+    
+    # Port
+    port: 8501
+    
+    # Auto-Deploy
+    autoDeployBranch: main
+
+# ============================================================================
+# DEPLOYMENT INSTRUCTIONS
+# ============================================================================
+#
+# 1. Create Render account: https://render.com
+#
+# 2. Connect GitHub repository
+#
+# 3. Create services from this file:
+#    - Render will auto-detect render.yaml
+#    - Create two services: API + UI
+#
+# 4. Set Environment Variables in Render Dashboard:
+#    - GOOGLE_API_KEY (from Google Cloud)
+#    - SERPER_API_KEY (from Serper.dev)
+#
+# 5. Deployment:
+#    - Automatic on push to main
+#    - Or manual trigger in dashboard
+#
+# 6. Access:
+#    - API: https://quickglance-api.onrender.com/api/docs
+#    - UI: https://quickglance-ui.onrender.com
+#
+# ============================================================================
+# PRICING
+# ============================================================================
+#
+# Free Plan ($0/month):
+# - Limited resources
+# - Services shut down after 15 min of inactivity
+# - Good for testing/demo
+#
+# Pro Plan ($12/month per service):
+# - Always-on
+# - Better resources
+# - 100 GB bandwidth
+#
+# ============================================================================

@@ -1,0 +1,17 @@
+# HuggingFace Spaces Configuration
+# Place this in the root of your HF Spaces repository
+
+app_file: streamlit_enhanced_app.py
+
+# Optional: Configure Streamlit settings
+title: QuickGlance - Multi-Agent Web Research
+emoji: 🔍
+
+# Disable analytics if desired
+# analytics_disabled: true
+
+# Optional: Configure theme
+# theme: dark
+
+# Optional: Configure layout
+# layout: centered

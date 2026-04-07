@@ -1,0 +1,2 @@
+timestamp,query,num_urls,urls_used,source_length,summary_length,relevance,coverage,redundancy,coherence,conciseness,overall_quality,grade
+2026-04-07T22:39:28.388634,Test Query,1,http://example.com,77,70,0.615,0.9,0.0,1.0,0.103,0.661,pass

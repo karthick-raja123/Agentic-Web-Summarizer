@@ -1,0 +1,98 @@
+# Railway Deployment Configuration
+# Deploy: Connect GitHub repository to railway.app
+# Documentation: https://docs.railway.app
+
+[build]
+# Python build configuration
+builder = "heroku"
+nixpacks = true  # Use nixpacks for better Python support
+
+[deploy]
+# Deployment settings
+restartPolicyType = "on-failure"
+restartPolicyMaxRetries = 5
+
+[[services]]
+# Backend API Service
+name = "quickglance-api"
+cmd = "uvicorn api:app --host 0.0.0.0 --port $PORT --workers 2"
+port = 8000
+
+[services.buildPack]
+# Python buildpack
+provider = "nixpacks"
+pythonVersion = "3.11"
+
+[services.variables]
+# Environment variables
+PYTHONUNBUFFERED = "1"
+PYTHONDONTWRITEBYTECODE = "1"
+API_HOST = "0.0.0.0"
+
+# Secrets (set in Railway dashboard)
+# GOOGLE_API_KEY
+# SERPER_API_KEY
+
+[[services.ports]]
+port = 8000
+public = true
+
+[[services]]
+# Alternative: Streamlit UI Service
+name = "quickglance-ui"
+cmd = "streamlit run streamlit_enhanced_app.py --server.port=$PORT --server.address=0.0.0.0"
+port = 8501
+
+[services.buildPack]
+pythonVersion = "3.11"
+
+[services.variables]
+PYTHONUNBUFFERED = "1"
+STREAMLIT_SERVER_HEADLESS = "true"
+API_URL = "https://quickglance-api.up.railway.app"
+
+# ============================================================================
+# RAILWAY DEPLOYMENT SETUP
+# ============================================================================
+#
+# Step 1: Create Railway Account
+#   - Visit railway.app
+#   - Sign up with GitHub
+#
+# Step 2: Create New Project
+#   - Click "New Project"
+#   - Select "Deploy from GitHub repo"
+#   - Select your repository
+#
+# Step 3: Configure Services
+#   - Railway auto-detects railway.toml
+#   - Creates two services: API + UI
+#
+# Step 4: Add Environment Variables
+#   - In Railway dashboard, add secrets:
+#   - GOOGLE_API_KEY
+#   - SERPER_API_KEY
+#
+# Step 5: Deploy
+#   - Railway automatically deploys on push
+#   - Watch deployment logs in dashboard
+#
+# Step 6: Access Services
+#   - API: https://quickglance-api.up.railway.app/api/docs
+#   - UI: https://quickglance-ui.up.railway.app
+#
+# ============================================================================
+# RAILWAY PRICING
+# ============================================================================
+#
+# Usage-Based Pricing:
+# - $0.50 per GB of container RAM/month
+# - Example: 4GB RAM = $2/month (always-on)
+# - Free tier: $5/month credit
+#
+# For this project:
+# - API: ~512MB RAM = $0.25/month
+# - UI: ~512MB RAM = $0.25/month
+# - Total: ~$0.50/month (well within free tier)
+#
+# ============================================================================

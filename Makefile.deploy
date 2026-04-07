@@ -1,0 +1,100 @@
+.PHONY: help setup dev-setup test run run-api run-web docker-build docker-up docker-down clean
+
+help:
+	@echo "Available commands:"
+	@echo "  make setup         - Full setup (venv + dependencies)"
+	@echo "  make dev-setup     - Development setup"
+	@echo "  make test          - Run tests"
+	@echo "  make run           - Run both API and Web (using docker-compose)"
+	@echo "  make run-api       - Run FastAPI backend only"
+	@echo "  make run-web       - Run Streamlit frontend only"
+	@echo "  make docker-build  - Build Docker image"
+	@echo "  make docker-up     - Start Docker containers"
+	@echo "  make docker-down   - Stop Docker containers"
+	@echo "  make clean         - Clean up cache and temp files"
+	@echo "  make health        - Test API health"
+	@echo "  make docs          - Open API docs"
+
+setup: 
+	@echo "Creating virtual environment..."
+	python -m venv venv
+	@echo "Activating venv..."
+ifeq ($(OS),Windows_NT)
+	venv\Scripts\activate
+else
+	. venv/bin/activate
+endif
+	@echo "Installing dependencies..."
+	pip install -r requirements-deploy.txt
+	@echo "Setup complete! Run 'make dev-setup' for dev tools."
+
+dev-setup:
+	pip install -r requirements-dev.txt
+	@echo "Dev setup complete!"
+
+test:
+	@echo "Running tests..."
+	pytest tests/ -v
+
+run:
+	@echo "Starting services with Docker Compose..."
+	docker-compose up
+
+run-api:
+	@echo "Starting FastAPI backend..."
+	python -m uvicorn app_fastapi:app --reload --host 0.0.0.0 --port 8000
+
+run-web:
+	@echo "Starting Streamlit frontend..."
+	streamlit run streamlit_app_pdf.py
+
+docker-build:
+	@echo "Building Docker image..."
+	docker build -t quickglance:latest .
+
+docker-up:
+	@echo "Starting Docker containers..."
+	docker-compose up -d
+	@echo "Services started:"
+	@echo "  API: http://localhost:8000"
+	@echo "  Web: http://localhost:8501"
+	@echo "  Docs: http://localhost:8000/docs"
+
+docker-down:
+	@echo "Stopping Docker containers..."
+	docker-compose down
+
+clean:
+	@echo "Cleaning up..."
+	find . -type d -name __pycache__ -exec rm -rf {} +
+	find . -type f -name "*.pyc" -delete
+	rm -rf .pytest_cache
+	rm -rf .venv
+	@echo "Cleanup complete!"
+
+health:
+	@echo "Checking API health..."
+	curl -s http://localhost:8000/health | python -m json.tool
+	@echo "\n✓ API is healthy!"
+
+docs:
+	@echo "Opening API documentation..."
+ifeq ($(OS),Windows_NT)
+	start http://localhost:8000/docs
+else
+	open http://localhost:8000/docs
+endif
+
+install-reqs:
+	pip install -r requirements-deploy.txt
+
+freeze:
+	pip freeze > requirements-frozen.txt
+
+format:
+	black app_fastapi.py streamlit_app_pdf.py
+	isort app_fastapi.py streamlit_app_pdf.py
+
+lint:
+	flake8 app_fastapi.py streamlit_app_pdf.py
+	pylint app_fastapi.py streamlit_app_pdf.py

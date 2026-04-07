@@ -1,0 +1,21 @@
+[
+  {
+    "timestamp": "2026-04-07T22:39:28.388634",
+    "query": "Test Query",
+    "num_urls": 1,
+    "urls": [
+      "http://example.com"
+    ],
+    "source_length": 77,
+    "summary_length": 70,
+    "source_preview": "Machine learning is a subset of artificial intelligence that learns from data",
+    "summary_preview": "• ML is a subset of AI\n• Learns from data without explicit programming",
+    "relevance": 0.615,
+    "coverage": 0.9,
+    "redundancy": 0.0,
+    "coherence": 1.0,
+    "conciseness": 0.103,
+    "overall_quality": 0.661,
+    "evaluation_status": "pass"
+  }
+]

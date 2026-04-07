@@ -4,8 +4,11 @@ from langgraph.graph import StateGraph, END
 from typing import TypedDict, List
 import google.generativeai as genai
 import os
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel("gemini-1.5-flash")
+from services.model_handler import create_model_with_fallback
+api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+if not api_key:
+    raise ValueError("GEMINI_API_KEY or GOOGLE_API_KEY not found in environment variables")
+model, CURRENT_MODEL_NAME = create_model_with_fallback(api_key)
 class AgentState(TypedDict):
     query: str
     urls: List[str]

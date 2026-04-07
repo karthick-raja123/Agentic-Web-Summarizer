@@ -1,0 +1,36 @@
+# ============================================================================
+# REQUIREMENTS - QuickGlance Streamlit App (Production Ready)
+# Minimal & optimized dependencies for Streamlit execution
+# ============================================================================
+
+# ============================================================================
+# CORE FRAMEWORK & UI
+# ============================================================================
+streamlit==1.32.0              # Web UI framework
+python-dotenv==1.0.0          # Environment variables loading
+
+# ============================================================================
+# LLM & AI
+# ============================================================================
+google-generativeai==0.3.0    # Google Gemini API
+langchain-google-genai==0.0.11 # LangChain Gemini integration
+langgraph==0.0.41             # Multi-agent graph framework
+langchain==0.1.0              # LLM orchestration and chains
+
+# ============================================================================
+# WEB & HTTP
+# ============================================================================
+requests==2.31.0              # HTTP requests with timeouts
+beautifulsoup4==4.12.2        # HTML/XML parsing
+lxml==4.9.3                   # Fast XML/HTML processing (optional but recommended)
+
+# ============================================================================
+# DATA & VALIDATION
+# ============================================================================
+pydantic==2.5.0               # Data validation and settings
+
+# ============================================================================
+# UTILITIES
+# ============================================================================
+python-dateutil==2.8.2        # Date/time utilities
+gtts==2.4.0                   # Google Text-to-Speech (optional)
