@@ -153,9 +153,9 @@ def clean_scrape(url):
 def search_serper(query):
     """
     Search using Serper API with error handling
-    - Handles network timeouts
-    - Handles API failures
-    - Returns empty list on error
+    - Handles network timeouts (8s hard limit)
+    - Handles API failures gracefully
+    - Returns empty list on error (never crashes)
     - SAFEGUARD: 8 second timeout to prevent hanging
     """
     api_key = os.getenv("SERPER_API_KEY")
@@ -168,17 +168,20 @@ def search_serper(query):
     if not api_key:
         print("SERPER_API_KEY not configured")
         return []
+    
     headers = {
         "X-API-KEY": api_key,
         "Content-Type": "application/json"
     }
     data = {"q": query}
+    
     try:
+        # CRITICAL: Set strict timeout to prevent hanging
         response = requests.post(
             "https://google.serper.dev/search",
             headers=headers,
             json=data,
-            timeout=8
+            timeout=8  # Hard limit: 8 seconds
         )
         response.raise_for_status()
         results = response.json()
@@ -186,23 +189,29 @@ def search_serper(query):
         
         if not urls:
             return []
-            
+        
+        print(f"✅ Search returned {len(urls)} URLs")
         return urls
         
     except requests.Timeout:
-        st.error("⏱️ Search timeout. Server took too long to respond. Try a simpler query.")
+        print("⏱️ Search timeout - server took too long")
+        st.warning("⏱️ Search timeout. Try a simpler query.")
         return []
     except requests.ConnectionError:
-        st.error("🌐 Network error. Please check your connection.")
+        print("🌐 Connection error - no internet or server down")
+        st.warning("🌐 Network error. Check your connection.")
         return []
     except requests.HTTPError as e:
-        st.error(f"🔍 Search API error. Please try again later.")
+        print(f"🔍 Search API error: {str(e)[:50]}")
+        st.warning("🔍 Search failed. Try again later.")
         return []
-    except ValueError:
-        st.error("⚠️ Invalid search response. Try a different query.")
+    except ValueError as e:
+        print(f"Invalid JSON response: {str(e)[:50]}")
+        st.warning("⚠️ Invalid search response.")
         return []
     except Exception as e:
-        st.error("❌ Unexpected error during search. Please try again.")
+        print(f"❌ Unexpected search error: {str(e)[:100]}")
+        st.warning(f"❌ Search error: {str(e)[:50]}")
         return []
 
 def is_academic_query(query):
@@ -392,7 +401,7 @@ def scrape_content_v2(urls):
     Progressive scraping pipeline (GUARANTEE: Gets content if URLs exist)
     
     Process:
-    1. Use top 3 URLs (safeguard: reduced from 5 to prevent hanging)
+    1. Use top 3 URLs hard limit (prevents hanging on slow sites)
     2. Extract from each with validation
     3. Stop when 2500-3000 chars accumulated
     4. Validate: min 500 chars per source, remove noisy content
@@ -408,10 +417,10 @@ def scrape_content_v2(urls):
         return None
     
     print("\n" + "="*60)
-    print("📄 PROGRESSIVE SCRAPING (Top 3 URLs - Safeguard)")
+    print("📄 PROGRESSIVE SCRAPING (Top 3 URLs - Hard Limit)")
     print("="*60)
     
-    best_urls = urls[:3]
+    best_urls = urls[:3]  # HARD LIMIT: Only 3 URLs max
     print(f"\n📌 Will scrape: {len(best_urls)} URLs (hard filtered)\n")
     
     accumulated_content = ""
@@ -419,10 +428,10 @@ def scrape_content_v2(urls):
     urls_scraped = 0
     
     for i, url in enumerate(best_urls, 1):
-        print(f"{i}/{len(best_urls)}: {url[:70]}")
-        
         try:
-            # Extract content
+            print(f"{i}/{len(best_urls)}: {url[:70]}")
+            
+            # Extract content with timeout built-in (trafilatura has built-in ~10s timeout)
             text = clean_scrape(url)
             
             if text:
@@ -584,31 +593,47 @@ def scrape_with_retry_and_fallback(query, attempt=1):
     
     return generic
 
-def safe_generate(prompt, max_retries=3):
+def safe_generate(prompt, max_retries=3, timeout_seconds=30):
     """
-    BULLETPROOF API wrapper with retry logic
-    - 3 retry attempts with 2-second delays
-    - Handles all API errors gracefully
+    BULLETPROOF API wrapper with retry logic and timeout
+    - 3 retry attempts with 2-second delays between retries
+    - Handles all API errors gracefully  
     - Uses correct model (gemini-2.5-flash)
+    - Times out to prevent hanging
+    - Never throws unhandled exceptions
     """
     for attempt in range(max_retries):
         try:
             print(f"🧠 API Call (attempt {attempt + 1}/{max_retries})...")
-            print(f"   Prompt length: {len(prompt)} chars")
+            print(f"   Prompt length: {len(prompt)} chars, timeout: {timeout_seconds}s")
             
             model = genai.GenerativeModel("gemini-2.5-flash")
-            response = model.generate_content(prompt, stream=False)
             
-            if response.text and len(response.text.strip()) > 20:
+            # Call with explicit timeout handling
+            response = model.generate_content(
+                prompt, 
+                stream=False,
+                generation_config={"timeout": timeout_seconds}
+            )
+            
+            if response and response.text and len(response.text.strip()) > 20:
                 result = response.text.strip()
                 print(f"✅ API Success: {len(result)} chars returned")
                 return result
             else:
                 print("⚠️ Empty response from API")
         
+        except TimeoutError:
+            print(f"⏱️ API timeout on attempt {attempt + 1}")
+            if attempt < max_retries - 1:
+                print(f"🔄 Waiting 3s before retry...")
+                time.sleep(3)
+            else:
+                print(f"❌ All {max_retries} attempts failed due to timeout")
+        
         except Exception as e:
-            error_msg = str(e)[:80]
-            print(f"⚠️ API Error: {error_msg}")
+            error_msg = str(e)[:100]
+            print(f"⚠️ API Error (attempt {attempt + 1}): {error_msg}")
             
             if attempt < max_retries - 1:
                 print(f"🔄 Waiting 2s before retry {attempt + 2}...")
@@ -616,6 +641,7 @@ def safe_generate(prompt, max_retries=3):
             else:
                 print(f"❌ All {max_retries} attempts failed")
     
+    print(f"⚠️ safe_generate returning None after {max_retries} retries")
     return None
 
 def generate_summary(content, query=""):
@@ -979,17 +1005,18 @@ if search_clicked:
     if query.strip() == "":
         st.warning("⚠️ Please enter a topic to proceed.")
     else:
-        # Add query to history (avoid duplicates)
-        if query not in st.session_state.query_history:
-            st.session_state.query_history.append(query)
-        # Start timing
-        start_time = time.time()
-        
-        # Create a progress tracking container
-        progress_placeholder = st.empty()
-        status_placeholder = st.empty()
-        
+        # MAIN TRY-EXCEPT: Wrap ENTIRE pipeline to prevent crashes
         try:
+            # Add query to history (avoid duplicates)
+            if query not in st.session_state.query_history:
+                st.session_state.query_history.append(query)
+            # Start timing
+            start_time = time.time()
+            
+            # Create a progress tracking container
+            progress_placeholder = st.empty()
+            status_placeholder = st.empty()
+            
             # Optimize query for better results
             original_query = query
             optimized_query = optimize_query_for_readability(query)
@@ -1020,8 +1047,11 @@ if search_clicked:
                         st.success(f"Step 1 Complete: Found {len(urls)} sources")
                 
                 with st.expander("View Sources"):
-                    for i, url in enumerate(urls, 1):
-                        st.write(f"**{i}.** [{url[:60]}...]({{url}})")
+                    for i, url in enumerate(urls[:10], 1):  # Limit to 10 for display
+                        try:
+                            st.write(f"**{i}.** [{url[:60]}...]({{url}})")
+                        except Exception as e:
+                            print(f"Error displaying URL: {str(e)[:50]}")
             else:
                 st.error("No sources found. Try a different query.")
                 st.stop()
@@ -1061,9 +1091,9 @@ if search_clicked:
                 if GTTS_AVAILABLE:
                     try:
                         scraped_voice_path = f"voice_notes_scraped_{original_query.replace(' ', '_')[:30]}.mp3"
-                        tts_scraped = gTTS(text=clean_for_audio(content[:1500]), lang='en')  # First 1500 chars of scraped content
+                        tts_scraped = gTTS(text=clean_for_audio(content[:1500]), lang='en')
                         tts_scraped.save(scraped_voice_path)
-                        st.success(f"✅ Scraped content saved as voice note: {scraped_voice_path}")
+                        st.success(f"✅ Scraped content saved as voice note")
                         print(f"Scraped content voice note saved: {scraped_voice_path}")
                     except Exception as e:
                         print(f"Note: Could not save scraped content voice note: {str(e)[:100]}")
@@ -1154,56 +1184,69 @@ if search_clicked:
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
-                    csv_path = create_csv(summary)
-                    if csv_path:
-                        with open(csv_path, "rb") as f:
-                            st.download_button(
-                                label="Download as CSV",
-                                data=f,
-                                file_name="summary.csv",
-                                mime="text/csv",
-                                use_container_width=True
-                            )
+                    try:
+                        csv_path = create_csv(summary)
+                        if csv_path:
+                            try:
+                                with open(csv_path, "rb") as f:
+                                    csv_data = f.read()
+                                st.download_button(
+                                    label="Download as CSV",
+                                    data=csv_data,
+                                    file_name="summary.csv",
+                                    mime="text/csv",
+                                    use_container_width=True
+                                )
+                            except Exception as e:
+                                st.warning(f"CSV read error: {str(e)[:50]}")
+                    except Exception as e:
+                        st.warning(f"CSV generation error: {str(e)[:50]}")
                 
                 with col2:
                     try:
                         pdf_path = create_pdf(summary)
                         if pdf_path and os.path.exists(pdf_path):
-                            with open(pdf_path, "rb") as f:
-                                pdf_data = f.read()
-                            st.download_button(
-                                label="Download as PDF",
-                                data=pdf_data,
-                                file_name="summary.pdf",
-                                mime="application/pdf",
-                                use_container_width=True
-                            )
+                            try:
+                                with open(pdf_path, "rb") as f:
+                                    pdf_data = f.read()
+                                st.download_button(
+                                    label="Download as PDF",
+                                    data=pdf_data,
+                                    file_name="summary.pdf",
+                                    mime="application/pdf",
+                                    use_container_width=True
+                                )
+                            except Exception as e:
+                                st.warning(f"PDF read error: {str(e)[:50]}")
                         else:
-                            st.error("PDF generation failed")
+                            st.warning("PDF generation failed (regenerate to retry)")
                     except Exception as e:
-                        st.error(f"PDF Error: {str(e)[:100]}")
+                        st.warning(f"PDF error: {str(e)[:50]}")
                 
                 with col3:
                     if GTTS_AVAILABLE:
                         try:
                             audio_path = generate_tts(summary)
                             if audio_path and os.path.exists(audio_path):
-                                with open(audio_path, "rb") as f:
-                                    audio_data = f.read()
-                                st.audio(audio_data, format="audio/mp3")
-                                st.download_button(
-                                    label="Download MP3",
-                                    data=audio_data,
-                                    file_name="summary.mp3",
-                                    mime="audio/mp3",
-                                    use_container_width=True
-                                )
+                                try:
+                                    with open(audio_path, "rb") as f:
+                                        audio_data = f.read()
+                                    st.audio(audio_data, format="audio/mp3")
+                                    st.download_button(
+                                        label="Download MP3",
+                                        data=audio_data,
+                                        file_name="summary.mp3",
+                                        mime="audio/mp3",
+                                        use_container_width=True
+                                    )
+                                except Exception as e:
+                                    st.warning(f"Audio read error: {str(e)[:50]}")
                             else:
-                                st.warning("Audio generation failed")
+                                st.warning("Audio generation failed (regenerate to retry)")
                         except Exception as e:
-                            st.error(f"Audio Error: {str(e)[:100]}")
+                            st.warning(f"Audio error: {str(e)[:50]}")
                     else:
-                        st.info("Audio feature unavailable (gTTS not installed)")
+                        st.info("Audio feature unavailable (install gTTS)")
                 
                 st.divider()
                 
@@ -1243,62 +1286,92 @@ if search_clicked:
                 
                 with col_voice3:
                     if st.button("📂 Browse All Voice Notes", use_container_width=True):
-                        import glob
-                        voice_notes = glob.glob("voice_notes_*.mp3")
-                        if voice_notes:
-                            st.info(f"Found {len(voice_notes)} voice notes")
-                            
-                            # Separate into categories
-                            summary_notes = [n for n in voice_notes if 'summary' in n]
-                            scraped_notes = [n for n in voice_notes if 'scraped' in n]
-                            auto_notes = [n for n in voice_notes if 'summary' not in n and 'scraped' not in n]
-                            
-                            if summary_notes:
-                                st.markdown("**📝 Summary Voice Notes**")
-                                for note in summary_notes:
-                                    col_note1, col_note2, col_note3 = st.columns([2, 1, 1])
-                                    with col_note1:
-                                        st.write(note.replace('voice_notes_summary_', '').replace('.mp3', ''))
-                                    with col_note2:
-                                        if st.button("▶️ Play", key=f"play_summary_{note}"):
-                                            with open(note, "rb") as f:
-                                                st.audio(f.read(), format="audio/mp3")
-                                    with col_note3:
-                                        if st.button("⬇️", key=f"dl_summary_{note}"):
-                                            with open(note, "rb") as f:
-                                                st.download_button("Download", f.read(), file_name=note, key=f"dlbtn_{note}")
-                            
-                            if scraped_notes:
-                                st.markdown("**📄 Scraped Content Voice Notes**")
-                                for note in scraped_notes:
-                                    col_note1, col_note2, col_note3 = st.columns([2, 1, 1])
-                                    with col_note1:
-                                        st.write(note.replace('voice_notes_scraped_', '').replace('.mp3', ''))
-                                    with col_note2:
-                                        if st.button("▶️ Play", key=f"play_scraped_{note}"):
-                                            with open(note, "rb") as f:
-                                                st.audio(f.read(), format="audio/mp3")
-                                    with col_note3:
-                                        if st.button("⬇️", key=f"dl_scraped_{note}"):
-                                            with open(note, "rb") as f:
-                                                st.download_button("Download", f.read(), file_name=note, key=f"dlbtn_{note}")
-                            
-                            if auto_notes:
-                                st.markdown("**🎙️ Auto-Generated Voice Notes**")
-                                for note in auto_notes:
-                                    col_note1, col_note2, col_note3 = st.columns([2, 1, 1])
-                                    with col_note1:
-                                        st.write(note.replace('voice_notes_', '').replace('.mp3', ''))
-                                    with col_note2:
-                                        if st.button("▶️ Play", key=f"play_auto_{note}"):
-                                            with open(note, "rb") as f:
-                                                st.audio(f.read(), format="audio/mp3")
-                                    with col_note3:
-                                        if st.button("⬇️", key=f"dl_auto_{note}"):
-                                            with open(note, "rb") as f:
-                                                st.download_button("Download", f.read(), file_name=note, key=f"dlbtn_{note}")
-                        else:
-                            st.info("No voice notes saved yet")
+                        try:
+                            import glob
+                            voice_notes = glob.glob("voice_notes_*.mp3")
+                            if voice_notes:
+                                try:
+                                    st.info(f"Found {len(voice_notes)} voice notes")
+                                    
+                                    # Separate into categories
+                                    summary_notes = [n for n in voice_notes if 'summary' in n]
+                                    scraped_notes = [n for n in voice_notes if 'scraped' in n]
+                                    auto_notes = [n for n in voice_notes if 'summary' not in n and 'scraped' not in n]
+                                    
+                                    if summary_notes:
+                                        st.markdown("**📝 Summary Voice Notes**")
+                                        for note in summary_notes:
+                                            try:
+                                                col_note1, col_note2, col_note3 = st.columns([2, 1, 1])
+                                                with col_note1:
+                                                    st.write(note.replace('voice_notes_summary_', '').replace('.mp3', '')[:50])
+                                                with col_note2:
+                                                    if st.button("▶️", key=f"play_summary_{note}"):
+                                                        try:
+                                                            with open(note, "rb") as f:
+                                                                st.audio(f.read(), format="audio/mp3")
+                                                        except Exception as e:
+                                                            st.warning(f"Could not play: {str(e)[:30]}")
+                                                with col_note3:
+                                                    try:
+                                                        with open(note, "rb") as f:
+                                                            st.download_button("⬇️", data=f.read(), file_name=note, key=f"dlbtn_s_{note}", use_container_width=True)
+                                                    except Exception as e:
+                                                        st.warning(f"Download error: {str(e)[:30]}")
+                                            except Exception as e:
+                                                st.warning(f"Error displaying note: {str(e)[:30]}")
+                                    
+                                    if scraped_notes:
+                                        st.markdown("**📄 Scraped Content Voice Notes**")
+                                        for note in scraped_notes:
+                                            try:
+                                                col_note1, col_note2, col_note3 = st.columns([2, 1, 1])
+                                                with col_note1:
+                                                    st.write(note.replace('voice_notes_scraped_', '').replace('.mp3', '')[:50])
+                                                with col_note2:
+                                                    if st.button("▶️", key=f"play_scraped_{note}"):
+                                                        try:
+                                                            with open(note, "rb") as f:
+                                                                st.audio(f.read(), format="audio/mp3")
+                                                        except Exception as e:
+                                                            st.warning(f"Could not play: {str(e)[:30]}")
+                                                with col_note3:
+                                                    try:
+                                                        with open(note, "rb") as f:
+                                                            st.download_button("⬇️", data=f.read(), file_name=note, key=f"dlbtn_sc_{note}", use_container_width=True)
+                                                    except Exception as e:
+                                                        st.warning(f"Download error: {str(e)[:30]}")
+                                            except Exception as e:
+                                                st.warning(f"Error displaying note: {str(e)[:30]}")
+                                    
+                                    if auto_notes:
+                                        st.markdown("**🎙️ Auto-Generated Voice Notes**")
+                                        for note in auto_notes:
+                                            try:
+                                                col_note1, col_note2, col_note3 = st.columns([2, 1, 1])
+                                                with col_note1:
+                                                    st.write(note.replace('voice_notes_', '').replace('.mp3', '')[:50])
+                                                with col_note2:
+                                                    if st.button("▶️", key=f"play_auto_{note}"):
+                                                        try:
+                                                            with open(note, "rb") as f:
+                                                                st.audio(f.read(), format="audio/mp3")
+                                                        except Exception as e:
+                                                            st.warning(f"Could not play: {str(e)[:30]}")
+                                                with col_note3:
+                                                    try:
+                                                        with open(note, "rb") as f:
+                                                            st.download_button("⬇️", data=f.read(), file_name=note, key=f"dlbtn_a_{note}", use_container_width=True)
+                                                    except Exception as e:
+                                                        st.warning(f"Download error: {str(e)[:30]}")
+                                            except Exception as e:
+                                                st.warning(f"Error displaying note: {str(e)[:30]}")
+                                except Exception as e:
+                                    st.error(f"Error browsing voice notes: {str(e)[:100]}")
+                            else:
+                                st.info("No voice notes saved yet")
+                        except Exception as e:
+                            st.warning(f"Voice notes unavailable: {str(e)[:50]}")
                 
                 st.divider()
                 
