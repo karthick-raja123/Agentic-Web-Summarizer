@@ -38,7 +38,7 @@ class LLMService:
     @retry(max_attempts=3, delay=2.0, exceptions=(Exception,))
     def summarize(self, content: str, max_length: int = 5) -> str:
         """
-        Summarize content using Gemini.
+        Summarize content using Gemini with structured output.
         
         Args:
             content: Text content to summarize
@@ -51,21 +51,48 @@ class LLMService:
             logger.warning("Empty content provided for summarization")
             return "No content to summarize."
         
+        # UTF-8 safe encoding
+        content = content.encode("utf-8", errors="ignore").decode("utf-8")
+        
         # Truncate to avoid token limit
         content = content[:8000]
         
-        prompt = f"""Summarize the following text in exactly {max_length} concise bullet points. 
-Each bullet point should be clear and informative.
-Make sure to capture the key insights.
+        prompt = f"""Summarize the following content in a structured and meaningful way:
 
-Text:
+1. **Clear Definition** (2-3 lines): What is this about?
+
+2. **Key Concepts** (bullet points):
+   • [concept 1]
+   • [concept 2]
+   • [concept 3]
+
+3. **Important Techniques/Models Used**: [List any relevant techniques, frameworks, or models]
+
+4. **Advantages and Limitations**:
+   Advantages: [list]
+   Limitations: [list]
+
+5. **Real-World Applications**: [Practical uses in industry and real scenarios]
+
+6. **Final Practical Takeaway**: [One actionable insight for the reader]
+
+RULES:
+- Be specific and technical, avoid generic sentences
+- Use clear, professional language
+- Focus on accuracy and practical value
+- No fluff or marketing language
+
+TEXT TO SUMMARIZE:
 {content}
 
-Provide the summary as bullet points only."""
+Provide the structured summary with all 6 sections:"""
         
         logger.info(f"Summarizing {len(content)} characters of content")
         response = self.model.generate_content(prompt)
         summary = response.text
+        
+        # UTF-8 safe encoding for response
+        summary = summary.encode("utf-8", errors="ignore").decode("utf-8")
         
         logger.info("Summarization completed successfully")
         return summary

@@ -38,6 +38,259 @@ def remove_emojis(text):
         return text
     return text.encode("ascii", "ignore").decode()
 
+# ============================================================================
+# PHASE 2: INTELLIGENCE FEATURES - Multi-Source Comparison
+# ============================================================================
+
+def score_url_quality(url):
+    """
+    Score URL quality on scale 1-10 (for display)
+    
+    Scoring:
+    10 → TowardsDataScience / Medium official AI channel
+    9  → GeeksforGeeks, AnalyticsVidhya, Official docs
+    8  → Medium (general), dev.to, GitHub
+    7  → Official blogs, tech news, Stack Overflow
+    5  → Other tech blogs
+    3  → Unknown sources
+    """
+    url_lower = url.lower()
+    
+    # Tier 1: Premium sources (9-10)
+    if any(domain in url_lower for domain in ["towardsdatascience.com", "medium.com/towards"]):
+        return (10, "Premium - TowardsDataScience/Medium AI")
+    if any(domain in url_lower for domain in ["geeksforgeeks", "analyticsvidhya"]):
+        return (9, "Premium - GeeksforGeeks/AnalyticsVidhya")
+    
+    # Tier 2: High quality (8)
+    if any(domain in url_lower for domain in ["medium.com", "dev.to", "github.com"]):
+        return (8, "High Quality - Medium/Dev.to/GitHub")
+    
+    # Tier 3: Good sources (7)
+    if any(domain in url_lower for domain in ["official", "docs", "documentation", "blog", ".org", "stackoverflow"]):
+        return (7, "Good Source - Official/Documentation")
+    
+    # Default
+    return (5, "Regular Tech Blog")
+
+def generate_query_improvement(original_query):
+    """
+    PHASE 3: Improve user query for better search results
+    
+    Converts vague queries to specific search queries
+    """
+    print(f"\n🔍 PHASE 3: Improving query...")
+    
+    prompt = f"""You are a search expert. Improve this query for better web search results.
+Make it more specific and add relevant keywords.
+
+Original query: "{original_query}"
+
+Return ONLY the improved query (no explanation, just the query):"""
+    
+    try:
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        response = model.generate_content(prompt, stream=False)
+        improved = response.text.strip().encode("utf-8", errors="ignore").decode("utf-8")
+        
+        if improved and len(improved) > 5:
+            print(f"✅ Improved query: {improved}")
+            return improved
+    except Exception as e:
+        print(f"⚠️ Query improvement failed: {str(e)[:50]}")
+    
+    return original_query
+
+def select_mode_prompt(mode):
+    """
+    PHASE 3: Select prompt style based on user mode
+    
+    Modes:
+    - Beginner: Simple, explain fundamentals
+    - Student: Academic depth, theory + practice
+    - Research: Deep dive, advanced concepts, citations
+    """
+    modes = {
+        "Beginner": {
+            "style": "Explain like I'm 15, focus on core ideas and real examples",
+            "icon": "🟢"
+        },
+        "Student": {
+            "style": "Academic level with theory, examples, and practical applications",
+            "icon": "🟡"
+        },
+        "Research": {
+            "style": "Go deep into techniques, models, research directions, and advanced concepts",
+            "icon": "🔴"
+        }
+    }
+    
+    return modes.get(mode, modes["Student"])
+
+def get_mode_specific_summary_prompt(content, mode="Student"):
+    """Generate professional summarization prompt with 7-section format"""
+    
+    prompt = f"""You are an expert technical analyst. Analyze the web content and generate a structured summary.
+
+STRICT FORMAT:
+
+1. Definition:
+Explain clearly what the topic is (2-3 lines, precise and technical).
+
+2. Key Concepts:
+List important concepts in bullet points.
+
+3. Techniques / Methods:
+Explain important algorithms, models, or approaches used.
+
+4. Advantages:
+List real benefits (not generic statements).
+
+5. Limitations:
+List actual problems or challenges.
+
+6. Real-World Applications:
+Give practical use cases (specific industries or systems).
+
+7. Final Takeaway:
+Give a strong, practical conclusion (what should someone learn or do).
+
+IMPORTANT RULES:
+- Avoid generic sentences
+- Be specific and technical
+- Do not repeat ideas
+- Keep it clear and structured
+
+CONTENT:
+{content[:2000]}
+
+Provide the structured 7-section summary:"""
+    
+    return prompt
+
+def generate_final_insight(summaries_list, query, mode="Student"):
+    """
+    PHASE 2: Generate final insight combining all sources
+    
+    Takes individual source summaries and creates unified insight
+    """
+    print(f"\n✨ PHASE 2: Generating Final Insight...")
+    
+    # Format all summaries with sources
+    formatted_summaries = "\n\n".join([
+        f"[Source {i+1}: {s.get('title', 'Unknown')}]\n{s.get('summary', 'No summary available')}"
+        for i, s in enumerate(summaries_list)
+    ])
+    
+    prompt = f"""You are an expert analyst synthesizing information from {len(summaries_list)} sources.
+
+Query: {query}
+Mode: {mode}
+
+INDIVIDUAL SOURCE SUMMARIES:
+{formatted_summaries}
+
+Now provide a UNIFIED FINAL INSIGHT that:
+1. Synthesizes all perspectives
+2. Identifies common themes
+3. Highlights unique insights from each source
+4. Provides your expert recommendation
+
+Format:
+
+**Synthesis**: [What all sources agree on]
+
+**Key Differences**: [Where sources differ]
+
+**Expert Recommendation**: [Your unified insight]
+
+**Confidence**: High/Medium based on number of sources"""
+    
+    try:
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        response = model.generate_content(prompt, stream=False)
+        insight = response.text.strip().encode("utf-8", errors="ignore").decode("utf-8")
+        print(f"✅ Final insight generated ({len(insight)} chars)")
+        return insight
+    except Exception as e:
+        print(f"❌ Insight generation failed: {str(e)[:50]}")
+        return None
+
+def generate_actionable_insights(summary, mode="Student"):
+    """
+    PHASE 3: Generate actionable next steps based on mode
+    
+    Beginner → Learning path recommendations
+    Student → Practice exercises
+    Research → Advanced topics to explore
+    """
+    print(f"\n💡 PHASE 3: Generating Actionable Insights ({mode})...")
+    
+    if mode == "Beginner":
+        next_steps_prompt = """What should a beginner do first to start learning this?
+Provide 3-5 concrete, actionable steps a beginner can take TODAY."""
+    elif mode == "Student":
+        next_steps_prompt = """What should a student focus on to master this concept?
+Provide 3-5 practical exercises or projects to deepen understanding."""
+    else:  # Research
+        next_steps_prompt = """What are the current research frontiers in this area?
+Provide 3-5 advanced topics or research directions to explore."""
+    
+    prompt = f"""Based on this content:
+{summary[:2000]}
+
+MODE: {mode}
+
+{next_steps_prompt}
+
+Format as numbered list with explanations."""
+    
+    try:
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        response = model.generate_content(prompt, stream=False)
+        insights = response.text.strip().encode("utf-8", errors="ignore").decode("utf-8")
+        return insights
+    except Exception as e:
+        print(f"⚠️ Actionable insights failed: {str(e)[:50]}")
+        return None
+
+def format_citations(summaries_list):
+    """
+    PHASE 4: Format citations for download
+    
+    Creates proper citation list for all sources
+    """
+    citations = "SOURCES:\n" + "="*50 + "\n\n"
+    
+    for i, item in enumerate(summaries_list, 1):
+        url = item.get('url', 'Unknown')
+        title = item.get('title', 'No title')
+        score = item.get('score', 5)
+        
+        # Simple citation format
+        citations += f"{i}. {title}\n"
+        citations += f"   URL: {url}\n"
+        citations += f"   Quality Score: {score}/10\n\n"
+    
+    return citations
+
+def get_pipeline_steps():
+    """
+    PHASE 4: Return pipeline steps for UI display
+    
+    Shows user the processing pipeline
+    """
+    return [
+        ("Step 1", "Improving query for better results", "🔍"),
+        ("Step 2", "Finding and filtering trusted sources", "✓"),
+        ("Step 3", "Extracting clean content from each source", "📄"),
+        ("Step 4", "Summarizing by source (not merged)", "📝"),
+        ("Step 5", "Generating final unified insight", "✨"),
+        ("Step 6", "Creating actionable recommendations", "💡"),
+    ]
+
+
+
 # Load environment variables from Streamlit secrets (Cloud) or .streamlit/secrets.toml (Local)
 try:
     # Try Streamlit Cloud secrets first
@@ -97,19 +350,44 @@ def clean_scrape(url):
     - Returns clean article text or None
     - Includes comprehensive error handling
     - SAFEGUARD: Hard filters + fail-fast pattern
+    - FILTER: Only trusted sources - blocks PDFs, research papers, low-quality sources
     """
-    # HARD FILTER: Block low-quality sources before scraping
-    BLOCKED_DOMAINS = [
-        "researchgate", "ncbi.nlm.nih.gov", "sciencedirect",
-        "springer", "wiley", "mdpi", "elsevier",
-        "youtube", "youtu.be", ".pdf",
-        "facebook.com", "twitter.com", "instagram.com"
+    # HARD FILTER: Block low-quality and untrusted sources before scraping
+    TRUSTED_DOMAINS = [
+        "medium.com", "towardsdatascience.com", "geeksforgeeks.org",
+        "analyticsvidhya.com", "dev.to", "blog", 
+        ".org", "github.com", "stackoverflow.com",
+        "official", "docs", "documentation"
     ]
     
+    BLOCKED_DOMAINS = [
+        # Research and academic papers
+        "researchgate", "arxiv", "ncbi.nlm.nih.gov", "sciencedirect",
+        "springer", "wiley", "mdpi", "elsevier", "ieee",
+        "acm.org", "jstor", "nature.com", "science.org",
+        # PDFs and documents
+        ".pdf", "filetype:pdf",
+        # Social media and untrusted sites
+        "facebook.com", "twitter.com", "instagram.com", "tiktok",
+        "reddit.com", "quora.com", "medium-static",
+        # Video sites (not readable)
+        "youtube", "youtu.be", "vimeo", "dailymotion",
+        # Paywall and restricted
+        "paywall", "subscription", "login?", "signin?",
+        # Unknown/random sites
+        "cloudflare", "libgen", "z-lib", "scribd"
+    ]
+    
+    url_lower = url.lower()
+    
+    # Check if it's a BLOCKED domain
     for blocked in BLOCKED_DOMAINS:
-        if blocked.lower() in url.lower():
+        if blocked.lower() in url_lower:
             print(f"⛔ Blocked domain: {blocked}")
             return None
+    
+    # Prefer TRUSTED domains, be more lenient with them
+    is_trusted = any(trusted.lower() in url_lower for trusted in TRUSTED_DOMAINS)
     
     try:
         # Fetch the URL using trafilatura (trafilatura v2 doesn't support timeout param)
@@ -133,6 +411,9 @@ def clean_scrape(url):
         text = text.strip()
         if len(text) < 800:
             return None
+        
+        # UTF-8 safe encoding
+        text = text.encode("utf-8", errors="ignore").decode("utf-8")
         
         # Cap at 3000 chars for API efficiency
         text = text[:3000]
@@ -296,12 +577,16 @@ def search_and_merge(query):
 def validate_content(text):
     """
     Validate and clean extracted content
+    - Fix encoding issues (UTF-8 safe)
     - Remove if too many links (noisy)
     - Ignore if too short (< 500 chars)
     - Remove excessive whitespace
     """
     if not text:
         return None
+    
+    # CRITICAL FIX: Ensure UTF-8 safe encoding
+    text = text.encode("utf-8", errors="ignore").decode("utf-8")
     
     # Too many links = low quality article
     link_count = text.count('http')
@@ -323,11 +608,15 @@ def clean_text(text):
     """
     Clean text before summarizing:
     - Remove extra whitespace
-    - Remove non-ASCII garbage
+    - Remove non-ASCII garbage and fix encoding issues
     - Remove HTML artifacts
+    - UTF-8 safe handling
     """
     if not text:
         return text
+    
+    # CRITICAL FIX: UTF-8 safe encoding
+    text = text.encode("utf-8", errors="ignore").decode("utf-8")
     
     # Remove extra whitespace
     text = ' '.join(text.split())
@@ -341,15 +630,18 @@ def clean_text(text):
 
 def rank_urls_advanced(urls):
     """
-    Advanced URL scoring system (-5 to +5):
+    Advanced URL scoring system (-10 to +10):
+    FILTERS ONLY HIGH-QUALITY TRUSTED SOURCES
     
-    +5 → Tutorial, guide, explained, learn keywords
-    +3 → Premium sources: medium, geeksforgeeks, towards
-    +1 → Normal article/blog sites
-    -1 → PDFs (hard to parse)
-    -3 → Academic publishers: ncbi, wiley, springer, mdpi
-    -5 → Suspicious: very long, many params, login
+    +10 → Tutorial/guide keywords + trusted domain
+    +8 → Premium sources: Medium, TowardsDataScience, GeeksforGeeks, AnalyticsVidhya
+    +5 → Official blogs, documentation, dev sites
+    +2 → Regular tech blogs and articles
+    -100 → PDFs (automatic reject)
+    -100 → Research papers/academic (arxiv, ncbi, springer, wiley, mdpi, etc)
+    -30 → Suspicious/paywall URLs
     
+    REJECTED: Any URL with -30 score or worse
     Sort by score descending (best first)
     """
     if not urls:
@@ -357,81 +649,103 @@ def rank_urls_advanced(urls):
     
     scored = []
     
+    # Sources to COMPLETELY AVOID
+    BANNED_SOURCES = [
+        ".pdf", "filetype:pdf",  # PDFs
+        "arxiv", "researchgate", "ncbi.nlm.nih.gov", 
+        "sciencedirect", "springer", "wiley", "mdpi", 
+        "elsevier", "ieee.org", "acm.org", "jstor",
+        "nature.com", "science.org"  # Research papers
+    ]
+    
+    # TRUSTED HIGH-QUALITY SOURCES (WHITELIST)
+    TRUSTED_SOURCES = [
+        "medium.com", "towardsdatascience.com",
+        "geeksforgeeks.org", "analyticsvidhya.com"
+    ]
+    
+    # GOOD SOURCES (secondary)
+    GOOD_SOURCES = [
+        "dev.to", "github.com", "stackoverflow.com",
+        ".org", "official", "docs", "documentation", "blog"
+    ]
+    
     for url in urls:
         url_lower = url.lower()
         score = 0
         
-        # POSITIVE SIGNALS: Tutorials & guides (+5)
-        if any(word in url_lower for word in ["tutorial", "guide", "explained", "learn", "beginner", "how-to", "step-by-step"]):
-            score += 5
+        # STEP 1: CHECK FOR BANNED SOURCES (automatic reject)
+        is_banned = any(banned in url_lower for banned in BANNED_SOURCES)
+        if is_banned:
+            score = -100  # Automatic reject
+            print(f"   ⛔ REJECTED (banned source): {url[:60]}")
+        else:
+            # STEP 2: SCORE TRUSTED SOURCES
+            is_trusted = any(trusted in url_lower for trusted in TRUSTED_SOURCES)
+            
+            # STEP 3: Score by content type
+            if any(word in url_lower for word in ["tutorial", "guide", "explained", "learn", "beginner", "how-to", "step-by-step"]):
+                score += 10
+            elif is_trusted:
+                score += 8
+            elif any(good in url_lower for good in GOOD_SOURCES):
+                score += 5
+            else:
+                score += 2
+            
+            # STEP 4: PENALIZE SUSPICIOUS URLs
+            if len(url) > 200 or url.count('=') > 5:
+                score -= 30
+            if 'login' in url_lower or 'paywall' in url_lower or 'subscription' in url_lower:
+                score -= 30
         
-        # POSITIVE SIGNALS: Premium educational sources (+3)
-        if any(domain in url_lower for domain in ["medium.com", "geeksforgeeks", "analyticsvidhya", "towardsdatascience"]):
-            score += 3
-        
-        # POSITIVE SIGNALS: .org, blogs, dev sites (+1)
-        elif any(domain in url_lower for domain in ["dev.to", "blog", ".org", "github.com", "stackoverflow"]):
-            score += 1
-        
-        # NEGATIVE SIGNALS: PDFs (-1)
-        if ".pdf" in url_lower:
-            score -= 1
-        
-        # NEGATIVE SIGNALS: Academic publishers (-3)
-        if any(domain in url_lower for domain in ["ncbi", "wiley", "springer", "mdpi", "elsevier", "sciencedirect", "researchgate"]):
-            score -= 3
-        
-        # NEGATIVE SIGNALS: Suspicious URLs (-5)
-        if len(url) > 200 or url.count('=') > 3 or 'login' in url_lower or 'paywall' in url_lower:
-            score -= 5
-        
-        scored.append((score, url))
+        if score >= -30:  # Only keep acceptable sources
+            scored.append((score, url))
+    
     
     # Sort by score descending
     scored.sort(reverse=True, key=lambda x: x[0])
     
-    print(f"\n🎯 ADVANCED RANKING (Top 5):")
-    for i, (score, url) in enumerate(scored[:5], 1):
-        print(f"   {i}. Score {score:+d}: {url[:65]}")
+    print(f"\n🎯 ADVANCED RANKING (Top 10 - Only Trusted Sources):")
+    for i, (score, url) in enumerate(scored[:10], 1):
+        status = "✅" if score >= 5 else "⚠️" if score >= 0 else "❌"
+        print(f"   {status} {i}. Score {score:+d}: {url[:60]}")
     
-    return [url for _, url in scored]
+    # Return only valid URLs (score >= -30)
+    return [url for score, url in scored if score >= -30]
 
 def scrape_content_v2(urls):
     """
-    Progressive scraping pipeline (GUARANTEE: Gets content if URLs exist)
+    PHASE 2: Progressive scraping pipeline with per-source summaries
     
     Process:
-    1. Use top 3 URLs hard limit (prevents hanging on slow sites)
-    2. Extract from each with validation
-    3. Stop when 2500-3000 chars accumulated
-    4. Validate: min 500 chars per source, remove noisy content
-    5. Clean text before adding
+    1. Use top 3 URLs hard limit (prevents hanging)
+    2. Extract from each URL individually
+    3. Return: List of {url, title, content, score}
     
-    Args:
-        urls: Ranked list of URLs
-        
+    CHANGE: Returns INDIVIDUAL source content, not merged!
+    This enables multi-source comparison.
+    
     Returns:
-        Combined content (500-3000 chars) or None
+        List of dicts: [{url, title, content, score}, ...]
     """
     if not urls:
-        return None
+        return []
     
     print("\n" + "="*60)
-    print("📄 PROGRESSIVE SCRAPING (Top 3 URLs - Hard Limit)")
+    print("📄 PROGRESSIVE SCRAPING (Top 3 URLs - Individual Sources)")
     print("="*60)
     
     best_urls = urls[:3]  # HARD LIMIT: Only 3 URLs max
-    print(f"\n📌 Will scrape: {len(best_urls)} URLs (hard filtered)\n")
+    print(f"\n📌 Will scrape: {len(best_urls)} URLs (individual analysis)\n")
     
-    accumulated_content = ""
-    target_size = 2500
-    urls_scraped = 0
+    results = []  # CHANGED: Now collects per-source results
     
     for i, url in enumerate(best_urls, 1):
         try:
             print(f"{i}/{len(best_urls)}: {url[:70]}")
             
-            # Extract content with timeout built-in (trafilatura has built-in ~10s timeout)
+            # Extract content with timeout built-in
             text = clean_scrape(url)
             
             if text:
@@ -441,16 +755,23 @@ def scrape_content_v2(urls):
                 if validated:
                     # Clean text before adding
                     cleaned = clean_text(validated)
-                    print(f"   ✅ Valid: {len(cleaned)} chars")
-                    accumulated_content += cleaned + "\n\n"
-                    urls_scraped += 1
-                    current_total = len(accumulated_content)
-                    print(f"   📊 Running total: {current_total} chars")
                     
-                    # Stop early if target reached (efficiency)
-                    if current_total >= target_size:
-                        print(f"   ✨ Target reached! Stopping.")
-                        break
+                    # Get source quality score
+                    score, score_label = score_url_quality(url)
+                    
+                    # Extract title from URL
+                    title = url.split('/')[-1][:50] if '/' in url else "Article"
+                    
+                    print(f"   ✅ Valid: {len(cleaned)} chars (Quality: {score}/10)")
+                    
+                    # NEW: Add as separate source instead of merging
+                    results.append({
+                        'url': url,
+                        'title': title,
+                        'content': cleaned,
+                        'score': score,
+                        'score_label': score_label
+                    })
                 else:
                     print(f"   ⚠️ Content invalid (noisy/links)")
             else:
@@ -460,17 +781,14 @@ def scrape_content_v2(urls):
             print(f"   ❌ Scrape error: {str(e)[:50]}")
             continue
     
-    # Final validation
-    final_text = accumulated_content.strip()
+    print(f"\n📊 Scraped: {len(results)} URLs successfully")
     
-    print(f"\n📊 Scraped: {urls_scraped} URLs successfully")
+    if len(results) >= 1:
+        print(f"✅ SUCCESS: {len(results)} sources ready for analysis")
+        return results
     
-    if len(final_text) >= 500:
-        print(f"✅ SUCCESS: {len(final_text)} chars accumulated")
-        return final_text[:3000]  # Cap at 3000
-    
-    print(f"⚠️ Insufficient: {len(final_text)} chars (need 500+)")
-    return None
+    print(f"⚠️ Insufficient: {len(results)} sources (need 1+)")
+    return []
 
 def generate_fallback_explanation(query):
     """
@@ -478,29 +796,40 @@ def generate_fallback_explanation(query):
     
     This ENSURES the system NEVER fails with empty content
     Provides high-quality AI explanation when web content unavailable
+    Uses structured, technical format for better quality
     """
     print("\n" + "="*60)
     print("🎯 FALLBACK: Direct AI Explanation (No Web Sources)")
     print("="*60)
     
-    prompt = f"""You are an expert educator. Provide a clear, comprehensive explanation suitable for beginners.
+    prompt = f"""Provide a comprehensive, structured explanation for: {query}
 
-TOPIC: {query}
+Use this exact structure:
 
-Provide exactly 5 KEY POINTS:
-1. [Core concept/definition]
-2. [How it works / Core mechanism]
-3. [Real-world application]
-4. [Practical benefits/advantages]
-5. [Key takeaway for learning]
+1. **Clear Definition** (2-3 lines): What is {query}? Define it clearly and concisely.
 
-Rules:
-- Use ONLY simple, clear language
-- 1-2 sentences per point
-- Focus on practical, actionable information
-- Make it accessible to beginners
-- Start each with a number
-"""
+2. **Key Concepts** (bullet points):
+   • [Concept 1]
+   • [Concept 2]
+   • [Concept 3]
+   • [Concept 4]
+
+3. **Important Techniques/Models Used**: [List any relevant techniques, frameworks, or methodologies]
+
+4. **Advantages and Limitations**:
+   Advantages: [key benefits]
+   Limitations: [important limitations]
+
+5. **Real-World Applications**: [Practical examples in industry and real scenarios]
+
+6. **Final Practical Takeaway**: [One actionable insight the reader should remember]
+
+RULES:
+- Be specific and technical, avoid generic sentences
+- Use professional, clear language
+- Focus on accuracy and practical value
+- No marketing language or fluff
+- Make it suitable for beginners but with technical depth"""
     
     try:
         print("\n🧠 Generating explanation from Gemini...")
@@ -508,7 +837,8 @@ Rules:
         response = model.generate_content(prompt, stream=False)
         
         if response.text and len(response.text.strip()) > 100:
-            result = response.text.strip()
+            # UTF-8 safe encoding for response
+            result = response.text.strip().encode("utf-8", errors="ignore").decode("utf-8")
             print(f"✅ Generated: {len(result)} chars")
             return result
     
@@ -617,7 +947,8 @@ def safe_generate(prompt, max_retries=3, timeout_seconds=30):
             )
             
             if response and response.text and len(response.text.strip()) > 20:
-                result = response.text.strip()
+                # CRITICAL FIX: UTF-8 safe encoding for API response
+                result = response.text.strip().encode("utf-8", errors="ignore").decode("utf-8")
                 print(f"✅ API Success: {len(result)} chars returned")
                 return result
             else:
@@ -644,6 +975,60 @@ def safe_generate(prompt, max_retries=3, timeout_seconds=30):
     print(f"⚠️ safe_generate returning None after {max_retries} retries")
     return None
 
+def summarize_per_source(scraped_sources, query="", mode="Student"):
+    """
+    PHASE 2: Summarize EACH source individually with retry logic and fallback
+    
+    Args:
+        scraped_sources: List of {url, title, content, score, score_label}
+        query: Original query
+        mode: Beginner/Student/Research
+        
+    Returns:
+        List of {url, title, content, score, summary, score_label}
+    """
+    print(f"\n" + "="*60)
+    print(f"📝 PHASE 2: Per-Source Summarization ({len(scraped_sources)} sources)")
+    print(f"="*60)
+    
+    results = []
+    
+    for i, source in enumerate(scraped_sources, 1):
+        title = source.get('title', 'Unknown')[:50]
+        print(f"\n{i}/{len(scraped_sources)}: {title}")
+        
+        summary = None
+        
+        for attempt in range(2):
+            try:
+                if attempt > 0:
+                    time.sleep(1)
+                    print(f"   Retry {attempt}...")
+                
+                prompt = get_mode_specific_summary_prompt(source.get('content', ''), mode)
+                model = genai.GenerativeModel("gemini-2.5-flash")
+                response = model.generate_content(prompt, stream=False)
+                
+                summary = response.text.strip().encode("utf-8", errors="ignore").decode("utf-8")
+                
+                if summary and len(summary) > 50:
+                    print(f"   Summarized: {len(summary)} chars")
+                    break
+                    
+            except Exception as e:
+                if attempt == 1:
+                    content_preview = source.get('content', '')[:300]
+                    summary = f"Summary: {content_preview}\n\n[Final Takeaway: Refer to original source for complete analysis]"
+        
+        if summary and len(summary) > 30:
+            source['summary'] = summary
+            results.append(source)
+        else:
+            results.append(source)
+    
+    print(f"\nSummarized {len(results)} sources successfully")
+    return results if results else scraped_sources
+
 def generate_summary(content, query=""):
     """
     Generate AI summary with BULLETPROOF error handling
@@ -655,6 +1040,7 @@ def generate_summary(content, query=""):
     ✅ Fallback explanation if API fails
     ✅ Final safety fallback
     ✅ Debug output at each stage
+    ✅ UTF-8 encoding safe handling
     """
     print("\n" + "="*60)
     print("📊 SUMMARY GENERATION (With Fallbacks)")
@@ -669,28 +1055,44 @@ def generate_summary(content, query=""):
         print(f"⚠️ Content short: {len(content)} chars, using AI fallback")
         return generate_fallback_explanation(query)
     
-    # CRITICAL FIX #0: CLEAN TEXT FIRST
+    # CRITICAL FIX #0: CLEAN TEXT FIRST + UTF-8 SAFE ENCODING
+    content = content.encode("utf-8", errors="ignore").decode("utf-8")
     content = clean_text(content)
     
     # CRITICAL FIX #1: LIMIT INPUT SIZE TO 3000 CHARS
     safe_content = content[:3000]
     print(f"📏 Content size: {len(safe_content)} chars (cleaned and limited)")
     
-    # PRIMARY ATTEMPT: Get summary from content
-    prompt = f"""You are a professional content summarizer. Extract exactly 5 KEY INSIGHTS from this text.
+    # PRIMARY ATTEMPT: Get summary from content with STRUCTURED FORMAT
+    prompt = f"""Summarize the following content in a structured and meaningful way:
+
+1. **Clear Definition** (2-3 lines): What is this about?
+
+2. **Key Concepts** (bullet points): 
+   • [concept 1]
+   • [concept 2]
+   • [concept 3]
+
+3. **Important Techniques/Models Used**: [List any relevant techniques, frameworks, or models]
+
+4. **Advantages and Limitations**: 
+   Advantages: [list]
+   Limitations: [list]
+
+5. **Real-World Applications**: [Practical uses in industry and real scenarios]
+
+6. **Final Practical Takeaway**: [One actionable insight for the reader]
 
 RULES:
-- Use ONLY simple, clear language
-- Maximum 1-2 sentences per insight
-- Focus on actionable, practical information
-- NO introductions, conclusions, or fluff
-- NO generic statements
-- Start each with a number: 1. 2. 3. etc
+- Be specific and technical, avoid generic sentences
+- Use clear, professional language
+- Focus on accuracy and practical value
+- No fluff or marketing language
 
-TEXT TO SUMMARIZE:
+CONTENT TO SUMMARIZE:
 {safe_content}
 
-Provide exactly 5 numbered key insights:"""
+Provide the structured summary with all 6 sections:"""
     
     # CRITICAL FIX #2: USE SAFE API WRAPPER
     print("\n1️⃣  PRIMARY: Summarizing from content...")
@@ -996,7 +1398,15 @@ st.divider()
 # ============================================================================
 col_search, col_retry = st.columns([4, 1])
 with col_search:
-    search_clicked = st.button("Search and Summarize", use_container_width=True, key="main_button")
+    # Add mode selector BEFORE search button
+    mode = st.selectbox(
+        "Analysis Mode:",
+        ["Beginner", "Student", "Research"],
+        index=1,
+        help="Beginner: Simple explanations | Student: Academic depth | Research: Advanced deep-dive"
+    )
+    
+    search_clicked = st.button("Search and Analyze", use_container_width=True, key="main_button")
 
 with col_retry:
     retry_clicked = st.button("Retry", use_container_width=True)
@@ -1017,402 +1427,298 @@ if search_clicked:
             progress_placeholder = st.empty()
             status_placeholder = st.empty()
             
-            # Optimize query for better results
-            original_query = query
-            optimized_query = optimize_query_for_readability(query)
-            
             # ========================================
-            # STEP 1: SEARCH (with optimization)
+            # PHASE 3: QUERY IMPROVEMENT
             # ========================================
             with status_placeholder.container():
-                st.markdown("### 📊 Processing Your Query...")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Step", "1 / 3", "SEARCHING")
+                st.markdown("### 📊 PHASE 3: Intelligent Analysis Pipeline...")
+                st.write("🔍 Step 1: Improving query for better results...")
             
-            with st.spinner("🔍 Searching the web for relevant sources..."):
+            original_query = query
+            improved_query = generate_query_improvement(original_query)
+            
+            # ========================================
+            # STEP 1: SEARCH with improved query
+            # ========================================
+            with status_placeholder.container():
+                st.write("🔍 Step 2: Finding trusted sources...")
+            
+            with st.spinner("🔍 Searching for high-quality sources..."):
                 try:
-                    urls = search_serper(optimized_query)
+                    urls = search_and_merge(improved_query)
                     if not urls:
                         st.info("ℹ️ No results on first search, trying variation...")
-                        urls = search_serper(f"{query} explained")
+                        urls = search_and_merge(f"{original_query} explained")
                 except Exception as search_error:
                     print(f"❌ Search error: {str(search_error)[:50]}")
                     urls = []
                 
             if urls:
                 with status_placeholder.container():
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.success(f"Step 1 Complete: Found {len(urls)} sources")
+                    st.success(f"✅ Found {len(urls)} sources. Ranking by quality...")
                 
-                with st.expander("View Sources"):
-                    for i, url in enumerate(urls[:10], 1):  # Limit to 10 for display
-                        try:
-                            st.write(f"**{i}.** [{url[:60]}...]({{url}})")
-                        except Exception as e:
-                            print(f"Error displaying URL: {str(e)[:50]}")
+                advanced_ranked_urls = rank_urls_advanced(urls)
+                
+                with st.expander(f"View {len(advanced_ranked_urls[:5])} Top Sources"):
+                    for i, url in enumerate(advanced_ranked_urls[:5], 1):
+                        score, score_label = score_url_quality(url)
+                        st.write(f"**{i}.** [{url[:60]}...]({{url}})")
+                        st.caption(f"Quality: {score}/10 - {score_label}")
             else:
                 st.error("No sources found. Try a different query.")
                 st.stop()
             
             # ========================================
-            # MASTER ORCHESTRATOR: Intelligent Content Extraction
+            # PHASE 2: MULTI-SOURCE ANALYSIS (Per-source, not merged!)
             # ========================================
             with status_placeholder.container():
-                st.markdown("### Processing Your Query...")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Step", "1-2 / 3", "Extracting Content")
+                st.write("📄 Step 3: Extracting content from each source individually...")
             
-            with st.spinner("Executing intelligent content extraction with hard filters..."):
+            with st.spinner("📄 Extracting and analyzing each source..."):
                 try:
-                    content = scrape_with_retry_and_fallback(original_query)
-                    if content:
-                        print(f"Extracted: {len(content)} chars (after hard filters)")
+                    # PHASE 2 FEATURE: Get per-source content
+                    scraped_sources = scrape_content_v2(advanced_ranked_urls)
+                    
+                    if not scraped_sources:
+                        raise Exception("Failed to scrape any sources")
+                    
+                    print(f"Scraped {len(scraped_sources)} individual sources")
                 except Exception as scrape_error:
                     print(f"Scraping error: {str(scrape_error)[:50]}")
-                    st.warning("Scraping encountered an issue, trying AI explanation...")
-                    content = generate_fallback_explanation(original_query)
+                    st.error("Could not extract content from sources.")
+                    st.stop()
             
-            if content:
-                st.session_state.last_content = content
-                content_chars = len(content)
-                print(f"Content ready: {content_chars} chars")
-                
+            if scraped_sources:
                 with status_placeholder.container():
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.success("Search Complete")
-                    with col2:
-                        st.success(f"Extracted {content_chars} chars")
+                    st.success(f"✅ Extracted {len(scraped_sources)} sources")
                 
-                # Save scraped content as voice note automatically
-                if GTTS_AVAILABLE:
-                    try:
-                        scraped_voice_path = f"voice_notes_scraped_{original_query.replace(' ', '_')[:30]}.mp3"
-                        tts_scraped = gTTS(text=clean_for_audio(content[:1500]), lang='en')
-                        tts_scraped.save(scraped_voice_path)
-                        st.success(f"✅ Scraped content saved as voice note")
-                        print(f"Scraped content voice note saved: {scraped_voice_path}")
-                    except Exception as e:
-                        print(f"Note: Could not save scraped content voice note: {str(e)[:100]}")
-            else:
-                st.error("Content extraction failed completely.")
-                st.stop()
+                with st.expander(f"📊 View Source Quality Scores"):
+                    for i, source in enumerate(scraped_sources, 1):
+                        st.write(f"**Source {i}:** {source['title'][:50]}")
+                        st.write(f"   • Quality Score: {source['score']}/10")
+                        st.write(f"   • Content: {len(source['content'])} chars")
             
             # ========================================
-            # STEP 3: SUMMARIZE
+            # PHASE 2: PER-SOURCE SUMMARIZATION
             # ========================================
             with status_placeholder.container():
-                st.markdown("### Processing Your Query...")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.success("Step 1: Found sources")
-                with col2:
-                    st.success("Step 2: Extracted content")
-                with col3:
-                    st.metric("Step", "3 / 3", "Summarizing")
+                st.write(f"📝 Step 4: Summarizing each source independently (Mode: {mode})...")
             
-            with st.spinner("Generating summary with Google Gemini..."):
+            with st.spinner("📝 Generating per-source summaries..."):
                 try:
-                    summary = generate_summary(content, original_query)
-                    if summary:
-                        print(f"Summary generated: {len(summary)} chars")
-                except Exception as api_error:
-                    print(f"API error: {str(api_error)[:50]}")
-                    st.warning("Generating summary from content directly...")
-                    summary = f"Summary\n\n{content[:1500] if content else 'No content available'}\n\n[Note: AI service temporarily unavailable - showing extracted content]" if content else None
+                    # PHASE 2 FEATURE: Summarize each source separately
+                    summarized_sources = summarize_per_source(scraped_sources, original_query, mode)
+                    
+                    if not summarized_sources:
+                        raise Exception("Failed to summarize any sources")
+                    
+                    print(f"Summarized {len(summarized_sources)} sources")
+                except Exception as summary_error:
+                    print(f"Summarization error: {str(summary_error)[:50]}")
+                    st.error("Could not summarize content.")
+                    st.stop()
             
-            # Clear progress and show results
+            st.session_state.last_summary = summarized_sources
+            
+            # Clear status
             status_placeholder.empty()
             
             st.divider()
             
             # ========================================
-            # DISPLAY RESULTS
+            # PHASE 4: DISPLAY PIPELINE
             # ========================================
-            if summary:
-                # Store summary for retry
-                st.session_state.last_summary = summary
-                
-                # Calculate elapsed time
-                elapsed_time = time.time() - start_time
-                
-                # Calculate number of sources used (max 2)
-                num_sources = min(2, len(urls))
-                
-                # Success metrics
+            with st.expander("📊 View Processing Pipeline", expanded=False):
+                pipeline = get_pipeline_steps()
+                for step, desc, icon in pipeline:
+                    st.write(f"{icon} {step}: {desc}")
+            
+            # ========================================
+            # PHASE 2 DISPLAY: MULTI-SOURCE COMPARISON
+            # ========================================
+            st.markdown("### 📊 Multi-Source Comparison")
+            
+            for i, source in enumerate(summarized_sources, 1):
                 with st.container():
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2 = st.columns([4, 1])
+                    
                     with col1:
-                        st.success("Step 1: Searched")
+                        st.markdown(f"#### 📰 **Source {i}: {source['title'][:50]}**")
+                        st.caption(f"Quality Score: ⭐ {source['score']}/10 ({source['score_label']})")
+                    
                     with col2:
-                        st.success("Step 2: Scraped")
-                    with col3:
-                        st.success("Step 3: Summarized")
-                
-                st.markdown("### Key Insights")
-                st.success("Analysis Complete!")
-                
-                # Display summary with better formatting
-                with st.container(border=True):
-                    st.markdown(summary)
-                
-                st.divider()
-                
-                # Performance Metrics
-                st.markdown("### Performance Metrics")
-                metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-                
-                with metric_col1:
-                    st.metric("Time Taken", f"{elapsed_time:.2f}s")
-                
-                with metric_col2:
-                    st.metric("Sources Used", num_sources)
-                
-                with metric_col3:
-                    st.metric("Content Length", f"{len(content)}")
-                
-                with metric_col4:
-                    st.metric("Summary Size", f"{len(summary)}")
-                
-                st.divider()
-                
-                # Download Options
-                st.markdown("### Download Your Summary")
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    try:
-                        csv_path = create_csv(summary)
-                        if csv_path:
-                            try:
-                                with open(csv_path, "rb") as f:
-                                    csv_data = f.read()
-                                st.download_button(
-                                    label="Download as CSV",
-                                    data=csv_data,
-                                    file_name="summary.csv",
-                                    mime="text/csv",
-                                    use_container_width=True
-                                )
-                            except Exception as e:
-                                st.warning(f"CSV read error: {str(e)[:50]}")
-                    except Exception as e:
-                        st.warning(f"CSV generation error: {str(e)[:50]}")
-                
-                with col2:
-                    try:
-                        pdf_path = create_pdf(summary)
-                        if pdf_path and os.path.exists(pdf_path):
-                            try:
-                                with open(pdf_path, "rb") as f:
-                                    pdf_data = f.read()
-                                st.download_button(
-                                    label="Download as PDF",
-                                    data=pdf_data,
-                                    file_name="summary.pdf",
-                                    mime="application/pdf",
-                                    use_container_width=True
-                                )
-                            except Exception as e:
-                                st.warning(f"PDF read error: {str(e)[:50]}")
-                        else:
-                            st.warning("PDF generation failed (regenerate to retry)")
-                    except Exception as e:
-                        st.warning(f"PDF error: {str(e)[:50]}")
-                
-                with col3:
-                    if GTTS_AVAILABLE:
-                        try:
-                            audio_path = generate_tts(summary)
-                            if audio_path and os.path.exists(audio_path):
-                                try:
-                                    with open(audio_path, "rb") as f:
-                                        audio_data = f.read()
-                                    st.audio(audio_data, format="audio/mp3")
-                                    st.download_button(
-                                        label="Download MP3",
-                                        data=audio_data,
-                                        file_name="summary.mp3",
-                                        mime="audio/mp3",
-                                        use_container_width=True
-                                    )
-                                except Exception as e:
-                                    st.warning(f"Audio read error: {str(e)[:50]}")
-                            else:
-                                st.warning("Audio generation failed (regenerate to retry)")
-                        except Exception as e:
-                            st.warning(f"Audio error: {str(e)[:50]}")
+                        st.metric("Quality", f"{source['score']}/10")
+                    
+                    # Display summary
+                    with st.expander(f"View Summary", expanded=(i==1)):  # First one expanded
+                        st.write(source['summary'])
+                    
+                    st.divider()
+            
+            # ========================================
+            # PHASE 2 FINAL INSIGHT
+            # ========================================
+            st.markdown("### ✨ Final Unified Insight")
+            
+            with st.spinner("✨ Synthesizing all sources into final insight..."):
+                try:
+                    final_insight = generate_final_insight(summarized_sources, original_query, mode)
+                    
+                    if final_insight:
+                        st.write(final_insight)
+                        st.session_state.last_full_analysis = final_insight
                     else:
-                        st.info("Audio feature unavailable (install gTTS)")
+                        st.info("Could not generate final insight")
+                except Exception as insight_error:
+                    print(f"Insight generation error: {str(insight_error)[:50]}")
+                    st.warning("Could not generate final insight")
+            
+            st.divider()
+            
+            # ========================================
+            # PHASE 3: ACTIONABLE INSIGHTS
+            # ========================================
+            st.markdown("### 💡 Actionable Insights")
+            
+            # Get first source summary for actionable insights
+            if summarized_sources:
+                first_summary = summarized_sources[0]['summary']
                 
-                st.divider()
-                
-                # Voice Notes Section
-                st.markdown("### Voice Notes")
-                st.info("💾 Save this summary and scraped content as voice notes for future reference")
-                
-                voice_note_name = st.text_input("Voice note name:", value=f"Note - {query[:30]}", placeholder="My important note")
-                
-                col_voice1, col_voice2, col_voice3 = st.columns(3)
-                
-                with col_voice1:
-                    if st.button("Save Summary as Voice Note", use_container_width=True):
-                        if voice_note_name and GTTS_AVAILABLE:
-                            try:
-                                # Generate voice note from summary
-                                note_path = f"voice_notes_summary_{voice_note_name.replace(' ', '_')}.mp3"
-                                tts = gTTS(text=clean_for_audio(summary), lang='en')
-                                tts.save(note_path)
-                                st.success(f"✅ Summary voice note saved: {voice_note_name}")
-                                print(f"Summary voice note saved to: {note_path}")
-                            except Exception as e:
-                                st.error(f"Failed to save summary voice note: {str(e)[:100]}")
-                
-                with col_voice2:
-                    if st.button("Save Scraped Content as Voice Note", use_container_width=True):
-                        if voice_note_name and GTTS_AVAILABLE and content:
-                            try:
-                                # Generate voice note from scraped content
-                                scraped_note_path = f"voice_notes_scraped_{voice_note_name.replace(' ', '_')}.mp3"
-                                tts_scraped = gTTS(text=clean_for_audio(content[:2000]), lang='en')
-                                tts_scraped.save(scraped_note_path)
-                                st.success(f"✅ Scraped content voice note saved: {voice_note_name}")
-                                print(f"Scraped content voice note saved to: {scraped_note_path}")
-                            except Exception as e:
-                                st.error(f"Failed to save scraped content voice note: {str(e)[:100]}")
-                
-                with col_voice3:
-                    if st.button("📂 Browse All Voice Notes", use_container_width=True):
-                        try:
-                            import glob
-                            voice_notes = glob.glob("voice_notes_*.mp3")
-                            if voice_notes:
-                                try:
-                                    st.info(f"Found {len(voice_notes)} voice notes")
-                                    
-                                    # Separate into categories
-                                    summary_notes = [n for n in voice_notes if 'summary' in n]
-                                    scraped_notes = [n for n in voice_notes if 'scraped' in n]
-                                    auto_notes = [n for n in voice_notes if 'summary' not in n and 'scraped' not in n]
-                                    
-                                    if summary_notes:
-                                        st.markdown("**📝 Summary Voice Notes**")
-                                        for note in summary_notes:
-                                            try:
-                                                col_note1, col_note2, col_note3 = st.columns([2, 1, 1])
-                                                with col_note1:
-                                                    st.write(note.replace('voice_notes_summary_', '').replace('.mp3', '')[:50])
-                                                with col_note2:
-                                                    if st.button("▶️", key=f"play_summary_{note}"):
-                                                        try:
-                                                            with open(note, "rb") as f:
-                                                                st.audio(f.read(), format="audio/mp3")
-                                                        except Exception as e:
-                                                            st.warning(f"Could not play: {str(e)[:30]}")
-                                                with col_note3:
-                                                    try:
-                                                        with open(note, "rb") as f:
-                                                            st.download_button("⬇️", data=f.read(), file_name=note, key=f"dlbtn_s_{note}", use_container_width=True)
-                                                    except Exception as e:
-                                                        st.warning(f"Download error: {str(e)[:30]}")
-                                            except Exception as e:
-                                                st.warning(f"Error displaying note: {str(e)[:30]}")
-                                    
-                                    if scraped_notes:
-                                        st.markdown("**📄 Scraped Content Voice Notes**")
-                                        for note in scraped_notes:
-                                            try:
-                                                col_note1, col_note2, col_note3 = st.columns([2, 1, 1])
-                                                with col_note1:
-                                                    st.write(note.replace('voice_notes_scraped_', '').replace('.mp3', '')[:50])
-                                                with col_note2:
-                                                    if st.button("▶️", key=f"play_scraped_{note}"):
-                                                        try:
-                                                            with open(note, "rb") as f:
-                                                                st.audio(f.read(), format="audio/mp3")
-                                                        except Exception as e:
-                                                            st.warning(f"Could not play: {str(e)[:30]}")
-                                                with col_note3:
-                                                    try:
-                                                        with open(note, "rb") as f:
-                                                            st.download_button("⬇️", data=f.read(), file_name=note, key=f"dlbtn_sc_{note}", use_container_width=True)
-                                                    except Exception as e:
-                                                        st.warning(f"Download error: {str(e)[:30]}")
-                                            except Exception as e:
-                                                st.warning(f"Error displaying note: {str(e)[:30]}")
-                                    
-                                    if auto_notes:
-                                        st.markdown("**🎙️ Auto-Generated Voice Notes**")
-                                        for note in auto_notes:
-                                            try:
-                                                col_note1, col_note2, col_note3 = st.columns([2, 1, 1])
-                                                with col_note1:
-                                                    st.write(note.replace('voice_notes_', '').replace('.mp3', '')[:50])
-                                                with col_note2:
-                                                    if st.button("▶️", key=f"play_auto_{note}"):
-                                                        try:
-                                                            with open(note, "rb") as f:
-                                                                st.audio(f.read(), format="audio/mp3")
-                                                        except Exception as e:
-                                                            st.warning(f"Could not play: {str(e)[:30]}")
-                                                with col_note3:
-                                                    try:
-                                                        with open(note, "rb") as f:
-                                                            st.download_button("⬇️", data=f.read(), file_name=note, key=f"dlbtn_a_{note}", use_container_width=True)
-                                                    except Exception as e:
-                                                        st.warning(f"Download error: {str(e)[:30]}")
-                                            except Exception as e:
-                                                st.warning(f"Error displaying note: {str(e)[:30]}")
-                                except Exception as e:
-                                    st.error(f"Error browsing voice notes: {str(e)[:100]}")
-                            else:
-                                st.info("No voice notes saved yet")
-                        except Exception as e:
-                            st.warning(f"Voice notes unavailable: {str(e)[:50]}")
-                
-                st.divider()
-                
-                # Sources Section
-                num_sources = min(2, len(urls))
-                st.markdown(f"### Sources Used ({num_sources})")
-                
-                with st.expander(f"View {num_sources} Sources", expanded=False):
-                    for i, url in enumerate(urls[:num_sources], 1):
-                        col1, col2 = st.columns([1, 15])
-                        with col1:
-                            st.text(f"{i}")
-                        with col2:
-                            st.markdown(f"[{url}]({url})")
-                
-                st.balloons()
-                st.success("Processing complete! Your summary is ready to download.")
+                with st.spinner(f"💡 Generating actionable insights for {mode}..."):
+                    try:
+                        actionable = generate_actionable_insights(first_summary, mode)
                         
-            else:
-                print("Summary generation failed")
-                st.error("Unable to generate summary. Please try again.")
-                with st.expander("What to do", expanded=True):
-                    st.info("""
-                    - Try refreshing the page
-                    - Try a different search query
-                    - Check your internet connection
-                    - Try again in a few moments
-                    """)
+                        if actionable:
+                            st.write(actionable)
+                        else:
+                            st.info("No actionable insights generated")
+                    except Exception as action_error:
+                        print(f"Actionable insights error: {str(action_error)[:50]}")
+            
+            st.divider()
+            
+            # ========================================
+            # TIMING & METRICS
+            # ========================================
+            elapsed_time = time.time() - start_time
+            
+            with st.container():
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Sources Analyzed", len(summarized_sources))
+                with col2:
+                    st.metric("Analysis Mode", mode)
+                with col3:
+                    st.metric("Time Elapsed", f"{elapsed_time:.1f}s")
+                with col4:
+                    st.metric("Query Improved", "Yes" if improved_query != original_query else "No")
+            
+            st.divider()
+            
+            # ========================================
+            # PHASE 4: CITATIONS & DOWNLOADS
+            # ========================================
+            st.markdown("### CITATIONS")
+            
+            # Format citations for all sources
+            citations_text = format_citations(summarized_sources)
+            
+            with st.expander("View Citations", expanded=False):
+                st.text(citations_text)
+            
+            st.divider()
+            
+            # ========================================
+            # PHASE 4: DOWNLOAD OPTIONS (Clean UI)
+            # ========================================
+            st.markdown("### Download Results")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            # Prepare export content with modes
+            export_content = f"""QUERY: {original_query}
+IMPROVED QUERY: {improved_query}
+ANALYSIS MODE: {mode}
+TIME TAKEN: {elapsed_time:.1f}s
+SOURCES ANALYZED: {len(summarized_sources)}
 
-                
+{'='*60}
+
+MULTI-SOURCE ANALYSIS
+
+"""
+            
+            for i, source in enumerate(summarized_sources, 1):
+                export_content += f"\nSOURCE {i}: {source['title']}\n"
+                export_content += f"Quality Score: {source['score']}/10\n"
+                export_content += f"URL: {source['url']}\n"
+                export_content += "-" * 60 + "\n"
+                export_content += source['summary']
+                export_content += "\n\n" + "="*60 + "\n\n"
+            
+            # Add citations
+            export_content += "\n" + citations_text
+            
+            with col1:
+                try:
+                    # Download as TXT (simplest, most reliable)
+                    st.download_button(
+                        label="Download as TXT",
+                        data=export_content.encode('utf-8'),
+                        file_name="analysis_results.txt",
+                        mime="text/plain",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.warning(f"TXT download error: {str(e)[:50]}")
+            
+            with col2:
+                try:
+                    csv_path = create_csv(export_content)
+                    if csv_path:
+                        with open(csv_path, "rb") as f:
+                            csv_data = f.read()
+                        st.download_button(
+                            label="Download as CSV",
+                            data=csv_data,
+                            file_name="analysis_results.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+                except Exception as e:
+                    st.warning(f"CSV error: {str(e)[:30]}")
+            
+            with col3:
+                try:
+                    pdf_path = create_pdf(export_content)
+                    if pdf_path and os.path.exists(pdf_path):
+                        with open(pdf_path, "rb") as f:
+                            pdf_data = f.read()
+                        st.download_button(
+                            label="Download as PDF",
+                            data=pdf_data,
+                            file_name="analysis_results.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                except Exception as e:
+                    st.warning(f"PDF error: {str(e)[:30]}")
+            
+            st.divider()
+            
+            # Success notification
+            st.success("Analysis complete! Download your results above.")
+            
         except Exception as e:
-            status_placeholder.empty()
-            st.error("An unexpected error occurred. Please try again.")
-            with st.expander("Troubleshooting", expanded=False):
+            st.error("An unexpected error occurred during analysis.")
+            with st.expander("Error Details", expanded=False):
                 st.code(f"Error: {str(e)[:200]}")
                 st.info("""
-                Steps to resolve:
-                1. Refresh the page
-                2. Try a different query
+                Troubleshooting tips:
+                1. Try a simpler query
+                2. Refresh the page
                 3. Check your internet connection
-                4. Wait a moment and try again
+                4. Try again in a moment
                 """)
 
 st.divider()

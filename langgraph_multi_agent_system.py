@@ -503,49 +503,71 @@ def summarizer_agent(state: PipelineState) -> PipelineState:
     combined_content = combined_content[:5000]
     
     # Generate summary using LLM
-    summary_prompt = f"""Summarize the following content comprehensively and clearly.
+    # UTF-8 safe encoding for combined content
+    combined_content = combined_content.encode("utf-8", errors="ignore").decode("utf-8")
+    
+    # Generate summary using LLM with structured format
+    summary_prompt = f"""Summarize the following content in a structured and meaningful way.
 
 Query: {state.get('query', '')}
 Intent: {state.get('user_intent', '')}
 
-Content:
+Use this exact structure:
+
+1. **Clear Definition** (2-3 lines): What is this about?
+
+2. **Key Concepts** (bullet points):
+   • [concept 1]
+   • [concept 2]
+   • [concept 3]
+
+3. **Important Techniques/Models Used**: [List any relevant techniques, frameworks, or models]
+
+4. **Advantages and Limitations**:
+   Advantages: [key benefits]
+   Limitations: [important limitations]
+
+5. **Real-World Applications**: [Practical examples in industry and real scenarios]
+
+6. **Final Practical Takeaway**: [One actionable insight the reader should remember]
+
+RULES:
+- Be specific and technical, avoid generic sentences
+- Use professional, clear language
+- Focus on accuracy and practical value
+- No marketing language or fluff
+
+CONTENT TO SUMMARIZE:
 {combined_content}
 
-Provide a summary with:
-1. A brief comprehensive overview (2-3 sentences)
-2. Exactly 5-7 key bullet points
-3. Important considerations or caveats
-
-Format as JSON:
-{{
-    "overview": "summary text",
-    "bullet_points": ["point1", "point2", ...],
-    "considerations": "any important notes"
-}}"""
+Provide the structured summary with all 6 sections:"""
     
     try:
         response = model.generate_content(summary_prompt)
         response_text = response.text
         
-        # Extract JSON
-        start = response_text.find('{')
-        end = response_text.rfind('}') + 1
-        json_str = response_text[start:end]
-        summary_data = json.loads(json_str)
+        # UTF-8 safe encoding
+        response_text = response_text.encode("utf-8", errors="ignore").decode("utf-8")
         
-        overview = summary_data.get("overview", "")
-        bullets = summary_data.get("bullet_points", [])
-        considerations = summary_data.get("considerations", "")
+        # The new format returns structured text, not JSON
+        # Extract sections from the formatted response
+        state["raw_summary"] = response_text
+        
+        # Extract bullet points from the response
+        bullets = []
+        lines = response_text.split('\n')
+        in_concepts = False
+        for line in lines:
+            if 'Key Concepts' in line:
+                in_concepts = True
+            elif in_concepts and line.strip().startswith('•'):
+                bullets.append(line.strip())
+            elif in_concepts and line.strip().startswith('**'):
+                in_concepts = False
         
         # Build formatted summary
-        state["raw_summary"] = overview
-        state["summary_bullets"] = bullets
-        state["summary"] = f"""{overview}
-
-Key Points:
-{chr(10).join([f"• {b}" for b in bullets])}
-
-{f"Considerations: {considerations}" if considerations else ""}"""
+        state["summary_bullets"] = bullets if bullets else ["Content summarized successfully"]
+        state["summary"] = response_text
         
     except Exception as e:
         # Fallback summary
