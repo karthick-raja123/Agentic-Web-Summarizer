@@ -12,8 +12,10 @@ trafilatura>=2.0.0
 # AI - Google Gemini API
 google-generativeai>=0.8.0
 
-# Audio Generation
+# Audio Generation & Speech Recognition
 gtts>=2.4.0
+SpeechRecognition>=3.10.0
+pydub>=0.25.1
 
 # PDF Generation
 reportlab>=4.0.0

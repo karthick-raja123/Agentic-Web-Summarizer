@@ -19,6 +19,12 @@ try:
 except ImportError:
     GTTS_AVAILABLE = False
 
+try:
+    import speech_recognition as sr
+    SPEECH_RECOGNITION_AVAILABLE = True
+except ImportError:
+    SPEECH_RECOGNITION_AVAILABLE = False
+
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
@@ -61,6 +67,14 @@ except:
 api_key_preview = GEMINI_API_KEY[:10] if GEMINI_API_KEY else "MISSING"
 print("API Key configured: " + api_key_preview + "...[hidden]")
 print("Using model: gemini-2.5-flash")
+
+# Check if placeholder keys are being used
+if "your_" in str(GEMINI_API_KEY).lower() or "placeholder" in str(GEMINI_API_KEY).lower():
+    st.error("ERROR: GOOGLE_API_KEY contains placeholder value. Please edit .streamlit/secrets.toml with your real API key from https://aistudio.google.com/app/apikeys")
+    st.stop()
+
+if "your_" in str(SERPER_API_KEY).lower() or "placeholder" in str(SERPER_API_KEY).lower():
+    st.warning("WARNING: SERPER_API_KEY contains placeholder value. Searches will fail. Edit .streamlit/secrets.toml with your real key from https://serper.dev")
 
 # Configure Gemini API
 genai.configure(api_key=GEMINI_API_KEY)
@@ -712,6 +726,37 @@ def clean_for_audio(text):
     
     return text[:2000]  # Limit to 2000 chars for TTS
 
+def transcribe_audio(audio_bytes):
+    """Transcribe audio from bytes to text using speech recognition"""
+    if not SPEECH_RECOGNITION_AVAILABLE:
+        return None
+    
+    try:
+        from io import BytesIO
+        import wave
+        
+        # Convert bytes to audio file
+        recognizer = sr.Recognizer()
+        
+        # Create audio data from bytes
+        audio_data = sr.AudioData(audio_bytes, 44100, 2)
+        
+        print("🎤 Transcribing audio...")
+        # Use Google Speech Recognition (free, no API key needed)
+        text = recognizer.recognize_google(audio_data)
+        print(f"✅ Transcribed: {len(text)} chars")
+        return text
+        
+    except sr.UnknownValueError:
+        st.warning("Could not understand audio. Try speaking more clearly.")
+        return None
+    except sr.RequestError as e:
+        st.warning(f"Speech recognition service error: {str(e)[:100]}")
+        return None
+    except Exception as e:
+        print(f"Transcription error: {str(e)[:100]}")
+        return None
+
 def generate_tts(summary_text):
     """Generate text-to-speech from summary with FIXED unicode handling"""
     if not GTTS_AVAILABLE:
@@ -858,37 +903,65 @@ with st.sidebar:
 # ============================================================================
 st.markdown("### What do you want to learn about?")
 
-# Example queries
-example_queries = [
-    "How machine learning improves healthcare outcomes",
-    "Artificial intelligence applications explained",
-    "Climate change solutions and renewable energy",
-    "Blockchain technology basics",
-    "Cybersecurity best practices 2024"
-]
+# Voice input option
+st.markdown("#### Input Methods")
+input_method = st.radio("Choose input method:", ["Text", "Voice"], horizontal=True)
 
-col1, col2, col3 = st.columns([2.5, 0.75, 0.75])
-with col1:
-    # Check if reusing from history
-    initial_value = st.session_state.get("reuse_query", "")
-    query = st.text_input(
-        "Enter your topic:",
-        placeholder="e.g., 'artificial intelligence in healthcare'",
-        value=initial_value,
-        label_visibility="collapsed"
-    )
-    if initial_value:
-        del st.session_state["reuse_query"]
+if input_method == "Voice":
+    st.info("🎤 Click the microphone button below to record your query")
+    audio_input = st.audio_input("Record your question:")
+    
+    if audio_input:
+        st.info("🔄 Transcribing your audio...")
+        # Transcribe audio to text
+        if SPEECH_RECOGNITION_AVAILABLE:
+            transcribed_query = transcribe_audio(audio_input.read())
+            if transcribed_query:
+                query = transcribed_query
+                st.success(f"✅ Transcribed: {query}")
+            else:
+                st.error("Could not transcribe audio. Try again or use text input.")
+                query = ""
+        else:
+            st.warning("Voice input not available. Using text input instead.")
+            query = st.text_input(
+                "Enter your topic:",
+                placeholder="e.g., 'artificial intelligence in healthcare'",
+                label_visibility="collapsed"
+            )
+else:
+    # Text input
+    # Example queries
+    example_queries = [
+        "How machine learning improves healthcare outcomes",
+        "Artificial intelligence applications explained",
+        "Climate change solutions and renewable energy",
+        "Blockchain technology basics",
+        "Cybersecurity best practices 2024"
+    ]
 
-with col2:
-    if st.button("Examples", use_container_width=True):
-        with st.expander("Example Queries", expanded=True):
-            for i, example in enumerate(example_queries, 1):
-                st.write(f"• {example}")
+    col1, col2, col3 = st.columns([2.5, 0.75, 0.75])
+    with col1:
+        # Check if reusing from history
+        initial_value = st.session_state.get("reuse_query", "")
+        query = st.text_input(
+            "Enter your topic:",
+            placeholder="e.g., 'artificial intelligence in healthcare'",
+            value=initial_value,
+            label_visibility="collapsed"
+        )
+        if initial_value:
+            del st.session_state["reuse_query"]
 
-with col3:
-    if st.button("Clear", use_container_width=True):
-        st.rerun()
+    with col2:
+        if st.button("Examples", use_container_width=True):
+            with st.expander("Example Queries", expanded=True):
+                for i, example in enumerate(example_queries, 1):
+                    st.write(f"• {example}")
+
+    with col3:
+        if st.button("Clear", use_container_width=True):
+            st.rerun()
 
 st.divider()
 
@@ -983,6 +1056,17 @@ if search_clicked:
                         st.success("Search Complete")
                     with col2:
                         st.success(f"Extracted {content_chars} chars")
+                
+                # Save scraped content as voice note automatically
+                if GTTS_AVAILABLE:
+                    try:
+                        scraped_voice_path = f"voice_notes_scraped_{original_query.replace(' ', '_')[:30]}.mp3"
+                        tts_scraped = gTTS(text=clean_for_audio(content[:1500]), lang='en')  # First 1500 chars of scraped content
+                        tts_scraped.save(scraped_voice_path)
+                        st.success(f"✅ Scraped content saved as voice note: {scraped_voice_path}")
+                        print(f"Scraped content voice note saved: {scraped_voice_path}")
+                    except Exception as e:
+                        print(f"Note: Could not save scraped content voice note: {str(e)[:100]}")
             else:
                 st.error("Content extraction failed completely.")
                 st.stop()
@@ -1120,6 +1204,101 @@ if search_clicked:
                             st.error(f"Audio Error: {str(e)[:100]}")
                     else:
                         st.info("Audio feature unavailable (gTTS not installed)")
+                
+                st.divider()
+                
+                # Voice Notes Section
+                st.markdown("### Voice Notes")
+                st.info("💾 Save this summary and scraped content as voice notes for future reference")
+                
+                voice_note_name = st.text_input("Voice note name:", value=f"Note - {query[:30]}", placeholder="My important note")
+                
+                col_voice1, col_voice2, col_voice3 = st.columns(3)
+                
+                with col_voice1:
+                    if st.button("Save Summary as Voice Note", use_container_width=True):
+                        if voice_note_name and GTTS_AVAILABLE:
+                            try:
+                                # Generate voice note from summary
+                                note_path = f"voice_notes_summary_{voice_note_name.replace(' ', '_')}.mp3"
+                                tts = gTTS(text=clean_for_audio(summary), lang='en')
+                                tts.save(note_path)
+                                st.success(f"✅ Summary voice note saved: {voice_note_name}")
+                                print(f"Summary voice note saved to: {note_path}")
+                            except Exception as e:
+                                st.error(f"Failed to save summary voice note: {str(e)[:100]}")
+                
+                with col_voice2:
+                    if st.button("Save Scraped Content as Voice Note", use_container_width=True):
+                        if voice_note_name and GTTS_AVAILABLE and content:
+                            try:
+                                # Generate voice note from scraped content
+                                scraped_note_path = f"voice_notes_scraped_{voice_note_name.replace(' ', '_')}.mp3"
+                                tts_scraped = gTTS(text=clean_for_audio(content[:2000]), lang='en')
+                                tts_scraped.save(scraped_note_path)
+                                st.success(f"✅ Scraped content voice note saved: {voice_note_name}")
+                                print(f"Scraped content voice note saved to: {scraped_note_path}")
+                            except Exception as e:
+                                st.error(f"Failed to save scraped content voice note: {str(e)[:100]}")
+                
+                with col_voice3:
+                    if st.button("📂 Browse All Voice Notes", use_container_width=True):
+                        import glob
+                        voice_notes = glob.glob("voice_notes_*.mp3")
+                        if voice_notes:
+                            st.info(f"Found {len(voice_notes)} voice notes")
+                            
+                            # Separate into categories
+                            summary_notes = [n for n in voice_notes if 'summary' in n]
+                            scraped_notes = [n for n in voice_notes if 'scraped' in n]
+                            auto_notes = [n for n in voice_notes if 'summary' not in n and 'scraped' not in n]
+                            
+                            if summary_notes:
+                                st.markdown("**📝 Summary Voice Notes**")
+                                for note in summary_notes:
+                                    col_note1, col_note2, col_note3 = st.columns([2, 1, 1])
+                                    with col_note1:
+                                        st.write(note.replace('voice_notes_summary_', '').replace('.mp3', ''))
+                                    with col_note2:
+                                        if st.button("▶️ Play", key=f"play_summary_{note}"):
+                                            with open(note, "rb") as f:
+                                                st.audio(f.read(), format="audio/mp3")
+                                    with col_note3:
+                                        if st.button("⬇️", key=f"dl_summary_{note}"):
+                                            with open(note, "rb") as f:
+                                                st.download_button("Download", f.read(), file_name=note, key=f"dlbtn_{note}")
+                            
+                            if scraped_notes:
+                                st.markdown("**📄 Scraped Content Voice Notes**")
+                                for note in scraped_notes:
+                                    col_note1, col_note2, col_note3 = st.columns([2, 1, 1])
+                                    with col_note1:
+                                        st.write(note.replace('voice_notes_scraped_', '').replace('.mp3', ''))
+                                    with col_note2:
+                                        if st.button("▶️ Play", key=f"play_scraped_{note}"):
+                                            with open(note, "rb") as f:
+                                                st.audio(f.read(), format="audio/mp3")
+                                    with col_note3:
+                                        if st.button("⬇️", key=f"dl_scraped_{note}"):
+                                            with open(note, "rb") as f:
+                                                st.download_button("Download", f.read(), file_name=note, key=f"dlbtn_{note}")
+                            
+                            if auto_notes:
+                                st.markdown("**🎙️ Auto-Generated Voice Notes**")
+                                for note in auto_notes:
+                                    col_note1, col_note2, col_note3 = st.columns([2, 1, 1])
+                                    with col_note1:
+                                        st.write(note.replace('voice_notes_', '').replace('.mp3', ''))
+                                    with col_note2:
+                                        if st.button("▶️ Play", key=f"play_auto_{note}"):
+                                            with open(note, "rb") as f:
+                                                st.audio(f.read(), format="audio/mp3")
+                                    with col_note3:
+                                        if st.button("⬇️", key=f"dl_auto_{note}"):
+                                            with open(note, "rb") as f:
+                                                st.download_button("Download", f.read(), file_name=note, key=f"dlbtn_{note}")
+                        else:
+                            st.info("No voice notes saved yet")
                 
                 st.divider()
                 
