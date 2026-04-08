@@ -1,23 +1,23 @@
-﻿# Production requirements for QuickGlance - Multi-Agent Research Aggregator
-# CLEANED AND MINIMAL - NO LANGCHAIN - TESTED AND WORKING
+﻿# QuickGlance AI - Production Requirements for Streamlit Cloud
+# Cloud-optimized (removed version locks for flexibility)
 
-# Core dependencies
-python-dotenv==1.0.0
-requests==2.31.0
-beautifulsoup4==4.12.2
-
-# AI - Direct Google Gemini API (NO LangChain)
-google-generativeai>=0.8.0
-
-# Streamlit frontend
+# Core Framework
 streamlit>=1.32.0
 
-# Audio/Text-to-speech
-gtts==2.4.0
+# Web Scraping & Content Extraction
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+trafilatura>=2.0.0
 
-# PDF generation
+# AI - Google Gemini API
+google-generativeai>=0.8.0
+
+# Audio Generation
+gtts>=2.4.0
+
+# PDF Generation
 reportlab>=4.0.0
 
 # Utilities
-python-dateutil==2.8.2
+python-dateutil>=2.8.0
 
