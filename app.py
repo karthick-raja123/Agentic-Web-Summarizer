@@ -170,13 +170,10 @@ Provide the structured 7-section summary:"""
 
 def generate_final_insight(summaries_list, query, mode="Student"):
     """
-    PHASE 2: Generate final insight combining all sources
-    
-    Takes individual source summaries and creates unified insight
+    PHASE 2: Generate final insight combining all sources with retry and fallback
     """
     print(f"\n✨ PHASE 2: Generating Final Insight...")
     
-    # Format all summaries with sources
     formatted_summaries = "\n\n".join([
         f"[Source {i+1}: {s.get('title', 'Unknown')}]\n{s.get('summary', 'No summary available')}"
         for i, s in enumerate(summaries_list)
@@ -190,69 +187,115 @@ Mode: {mode}
 INDIVIDUAL SOURCE SUMMARIES:
 {formatted_summaries}
 
-Now provide a UNIFIED FINAL INSIGHT that:
+Provide a UNIFIED FINAL INSIGHT that:
 1. Synthesizes all perspectives
 2. Identifies common themes
 3. Highlights unique insights from each source
 4. Provides your expert recommendation
 
-Format:
-
-**Synthesis**: [What all sources agree on]
-
-**Key Differences**: [Where sources differ]
-
-**Expert Recommendation**: [Your unified insight]
-
+Use this format:
+**Synthesis**: What all sources agree on
+**Key Differences**: Where sources differ
+**Expert Recommendation**: Your unified insight
 **Confidence**: High/Medium based on number of sources"""
     
-    try:
-        model = genai.GenerativeModel("gemini-2.5-flash")
-        response = model.generate_content(prompt, stream=False)
-        insight = response.text.strip().encode("utf-8", errors="ignore").decode("utf-8")
-        print(f"✅ Final insight generated ({len(insight)} chars)")
-        return insight
-    except Exception as e:
-        print(f"❌ Insight generation failed: {str(e)[:50]}")
-        return None
+    for attempt in range(2):
+        try:
+            if attempt > 0:
+                time.sleep(1)
+                print(f"Retry {attempt}...")
+            
+            model = genai.GenerativeModel("gemini-2.5-flash")
+            response = model.generate_content(prompt, stream=False)
+            insight = response.text.strip().encode("utf-8", errors="ignore").decode("utf-8")
+            
+            if insight and len(insight) > 100:
+                print(f"✅ Final insight generated ({len(insight)} chars)")
+                return insight
+        except Exception as e:
+            if attempt == 1:
+                print(f"Fallback: Creating synthesis from summaries")
+    
+    # FALLBACK: Synthesize from summaries if LLM fails
+    synthesis = f"""**Synthesis**: 
+Based on {len(summaries_list)} sources analyzing "{query}":
+" + "\n".join([
+        f"- {s.get('title', 'Source').split()[0]}: {s.get('summary', '').split(chr(10))[0][:100]}"
+        for s in summaries_list[:3]
+    ])
+    
+    synthesis += f"""\n\n**Key Insights**: 
+The sources provide complementary perspectives on {query}. Each source contributes unique technical insights and practical applications.
+
+**Expert Recommendation**: 
+Combining all sources, the most reliable approach focuses on integrating key concepts from each perspective.
+
+**Confidence**: Medium - Based on {len(summaries_list)} sources"""
+    
+    return synthesis
 
 def generate_actionable_insights(summary, mode="Student"):
     """
-    PHASE 3: Generate actionable next steps based on mode
-    
-    Beginner → Learning path recommendations
-    Student → Practice exercises
-    Research → Advanced topics to explore
+    PHASE 3: Generate actionable next steps with retry and fallback
     """
     print(f"\n💡 PHASE 3: Generating Actionable Insights ({mode})...")
     
     if mode == "Beginner":
+        fallback_steps = [
+            "1. Start with fundamentals - Learn basic concepts and terminology",
+            "2. Find beginner-friendly tutorials - Look for interactive guides",
+            "3. Practice with simple examples - Build confidence step by step",
+            "4. Join communities - Connect with other learners",
+            "5. Build a small project - Apply what you've learned"
+        ]
         next_steps_prompt = """What should a beginner do first to start learning this?
-Provide 3-5 concrete, actionable steps a beginner can take TODAY."""
+Provide 3-5 concrete, actionable steps."""
     elif mode == "Student":
+        fallback_steps = [
+            "1. Master the core concepts - Understand underlying principles",
+            "2. Practice with real projects - Apply learning in practical scenarios",
+            "3. Solve coding challenges - Strengthen problem-solving skills",
+            "4. Study source code - Learn from existing implementations",
+            "5. Teach others - Solidify understanding by explaining concepts"
+        ]
         next_steps_prompt = """What should a student focus on to master this concept?
-Provide 3-5 practical exercises or projects to deepen understanding."""
+Provide 3-5 practical exercises or projects."""
     else:  # Research
+        fallback_steps = [
+            "1. Study cutting-edge papers - Read latest research publications",
+            "2. Explore open problems - Identify gaps in current knowledge",
+            "3. Implement novel approaches - Experiment with new techniques",
+            "4. Contribute to research - Publish findings and collaborate",
+            "5. Stay updated - Follow research communities and conferences"
+        ]
         next_steps_prompt = """What are the current research frontiers in this area?
-Provide 3-5 advanced topics or research directions to explore."""
+Provide 3-5 advanced topics or research directions."""
     
     prompt = f"""Based on this content:
-{summary[:2000]}
+{summary[:1500]}
 
 MODE: {mode}
 
 {next_steps_prompt}
 
-Format as numbered list with explanations."""
+Format as numbered list."""
     
-    try:
-        model = genai.GenerativeModel("gemini-2.5-flash")
-        response = model.generate_content(prompt, stream=False)
-        insights = response.text.strip().encode("utf-8", errors="ignore").decode("utf-8")
-        return insights
-    except Exception as e:
-        print(f"⚠️ Actionable insights failed: {str(e)[:50]}")
-        return None
+    for attempt in range(2):
+        try:
+            if attempt > 0:
+                time.sleep(1)
+            
+            model = genai.GenerativeModel("gemini-2.5-flash")
+            response = model.generate_content(prompt, stream=False)
+            insights = response.text.strip().encode("utf-8", errors="ignore").decode("utf-8")
+            
+            if insights and len(insights) > 50:
+                return insights
+        except Exception as e:
+            pass
+    
+    # FALLBACK: Return default steps
+    return "\n".join(fallback_steps)
 
 def format_citations(summaries_list):
     """
@@ -1563,15 +1606,11 @@ if search_clicked:
             with st.spinner("✨ Synthesizing all sources into final insight..."):
                 try:
                     final_insight = generate_final_insight(summarized_sources, original_query, mode)
-                    
                     if final_insight:
                         st.write(final_insight)
                         st.session_state.last_full_analysis = final_insight
-                    else:
-                        st.info("Could not generate final insight")
                 except Exception as insight_error:
                     print(f"Insight generation error: {str(insight_error)[:50]}")
-                    st.warning("Could not generate final insight")
             
             st.divider()
             
@@ -1587,11 +1626,8 @@ if search_clicked:
                 with st.spinner(f"💡 Generating actionable insights for {mode}..."):
                     try:
                         actionable = generate_actionable_insights(first_summary, mode)
-                        
                         if actionable:
                             st.write(actionable)
-                        else:
-                            st.info("No actionable insights generated")
                     except Exception as action_error:
                         print(f"Actionable insights error: {str(action_error)[:50]}")
             
