@@ -217,20 +217,22 @@ Use this format:
                 print(f"Fallback: Creating synthesis from summaries")
     
     # FALLBACK: Synthesize from summaries if LLM fails
-    synthesis = f"""**Synthesis**: 
-Based on {len(summaries_list)} sources analyzing "{query}":
-" + "\n".join([
-        f"- {s.get('title', 'Source').split()[0]}: {s.get('summary', '').split(chr(10))[0][:100]}"
+    source_list = "\n".join([
+        f"- {s.get('title', 'Source')}: {s.get('summary', '').split(chr(10))[0][:80]}"
         for s in summaries_list[:3]
     ])
     
-    synthesis += f"""\n\n**Key Insights**: 
-The sources provide complementary perspectives on {query}. Each source contributes unique technical insights and practical applications.
+    synthesis = f"""**Synthesis**: 
+Based on {len(summaries_list)} sources analyzing "{query}":
+{source_list}
+
+**Key Insights**: 
+The sources provide complementary perspectives on this topic. Each source contributes unique technical insights.
 
 **Expert Recommendation**: 
-Combining all sources, the most reliable approach focuses on integrating key concepts from each perspective.
+Combining all sources gives a comprehensive understanding of the subject.
 
-**Confidence**: Medium - Based on {len(summaries_list)} sources"""
+**Confidence**: Medium - Based on {len(summaries_list)} quality sources"""
     
     return synthesis
 
