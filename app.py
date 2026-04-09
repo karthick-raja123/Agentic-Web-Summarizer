@@ -449,9 +449,9 @@ def extract_text_with_beautifulsoup(html):
                 element.decompose()
         
         # Extract title
-        title = \"\"
+        title = ''
         if soup.title:
-            title = soup.title.string or \"\"
+            title = soup.title.string or ''
         elif soup.find('h1'):
             title = soup.find('h1').get_text(strip=True)
         
@@ -492,12 +492,12 @@ def extract_text_with_beautifulsoup(html):
                 seen_hashes.add(para_hash)
         
         # Join content
-        content = \"\\n\\n\".join(unique_paragraphs)
+        content = '\n\n'.join(unique_paragraphs)
         
         # UTF-8 safe encoding
-        content = content.encode(\"utf-8\", errors=\"ignore\").decode(\"utf-8\")
-        title = title.encode(\"utf-8\", errors=\"ignore\").decode(\"utf-8\")
-        headings = [h.encode(\"utf-8\", errors=\"ignore\").decode(\"utf-8\") for h in headings]
+        content = content.encode('utf-8', errors='ignore').decode('utf-8')
+        title = title.encode('utf-8', errors='ignore').decode('utf-8')
+        headings = [h.encode('utf-8', errors='ignore').decode('utf-8') for h in headings]
         
         # Return structured output
         return {
@@ -507,11 +507,12 @@ def extract_text_with_beautifulsoup(html):
         }
     
     except Exception as e:
-        print(f\"BeautifulSoup parsing error: {str(e)[:50]}\")
+        print(f'BeautifulSoup parsing error: {str(e)[:50]}')
+        return None
         return None
 
 def clean_scrape(url):
-    \"\"\"
+    '''
     Production-grade web scraper with fallback mechanism
     
     Features:
@@ -522,31 +523,24 @@ def clean_scrape(url):
     5. Returns structured output: {title, headings, content}
     
     SAFEGUARD: Hard filters block low-quality sources
-    \"\"\"
+    '''
     # HARD FILTER: Block low-quality sources
-    TRUSTED_DOMAINS = [
-        \"medium.com\", \"towardsdatascience.com\", \"geeksforgeeks.org\",
-        \"analyticsvidhya.com\", \"dev.to\", \"blog\", 
-        \".org\", \"github.com\", \"stackoverflow.com\",
-        \"official\", \"docs\", \"documentation\"
-    ]
-    
     BLOCKED_DOMAINS = [
         # Research and academic papers
-        \"researchgate\", \"arxiv\", \"ncbi.nlm.nih.gov\", \"sciencedirect\",
-        \"springer\", \"wiley\", \"mdpi\", \"elsevier\", \"ieee\",
-        \"acm.org\", \"jstor\", \"nature.com\", \"science.org\",
+        'researchgate', 'arxiv', 'ncbi.nlm.nih.gov', 'sciencedirect',
+        'springer', 'wiley', 'mdpi', 'elsevier', 'ieee',
+        'acm.org', 'jstor', 'nature.com', 'science.org',
         # PDFs
-        \".pdf\", \"filetype:pdf\",
+        '.pdf', 'filetype:pdf',
         # Social media
-        \"facebook.com\", \"twitter.com\", \"instagram.com\", \"tiktok\",
-        \"reddit.com\", \"quora.com\", \"medium-static\",
+        'facebook.com', 'twitter.com', 'instagram.com', 'tiktok',
+        'reddit.com', 'quora.com', 'medium-static',
         # Video
-        \"youtube\", \"youtu.be\", \"vimeo\", \"dailymotion\",
+        'youtube', 'youtu.be', 'vimeo', 'dailymotion',
         # Paywalls
-        \"paywall\", \"subscription\", \"login?\", \"signin?\",
+        'paywall', 'subscription', 'login?', 'signin?',
         # Other
-        \"cloudflare\", \"libgen\", \"z-lib\", \"scribd\"
+        'cloudflare', 'libgen', 'z-lib', 'scribd'
     ]
     
     url_lower = url.lower()
@@ -554,12 +548,12 @@ def clean_scrape(url):
     # Block domains
     for blocked in BLOCKED_DOMAINS:
         if blocked.lower() in url_lower:
-            print(f\"⛔ Blocked domain: {blocked}\")
+            print(f'⛔ Blocked domain: {blocked}')
             return None
     
     try:
         # PRIMARY: Fetch and parse with BeautifulSoup
-        print(f\"🔍 Scraping (BeautifulSoup): {url[:50]}\")
+        print(f'🔍 Scraping (BeautifulSoup): {url[:50]}')
         
         response = requests.get(
             url,
@@ -572,7 +566,7 @@ def clean_scrape(url):
         extracted = extract_text_with_beautifulsoup(response.text)
         
         if not extracted or not extracted.get('content'):
-            raise Exception(\"No content extracted by BeautifulSoup\")
+            raise Exception('No content extracted by BeautifulSoup')
         
         content = extracted['content']
         
@@ -580,31 +574,31 @@ def clean_scrape(url):
         word_count = len(content.split())
         
         if word_count < 800:
-            print(f\"⚠️  Content too short ({word_count} words), trying fallback...\")
+            print(f'⚠️  Content too short ({word_count} words), trying fallback...')
             # FALLBACK #1: Try trafilatura
             return fallback_scrape_trafilatura(url)
         
-        print(f\"✅ Extracted {word_count} words from {url[:50]}\")
+        print(f'✅ Extracted {word_count} words from {url[:50]}')
         
         # Return content with limit for API efficiency
         return content[:5000]
     
     except requests.Timeout:
-        print(f\"⏱️  Timeout on {url}, trying fallback...\")
+        print(f'⏱️  Timeout on {url}, trying fallback...')
         return fallback_scrape_trafilatura(url)
     except requests.ConnectionError:
-        print(f\"🌐 Connection error on {url}, trying fallback...\")
+        print(f'🌐 Connection error on {url}, trying fallback...')
         return fallback_scrape_trafilatura(url)
     except Exception as e:
-        print(f\"❌ BeautifulSoup error: {str(e)[:50]}, trying fallback...\")
+        print(f'❌ BeautifulSoup error: {str(e)[:50]}, trying fallback...')
         return fallback_scrape_trafilatura(url)
 
 def fallback_scrape_trafilatura(url):
-    \"\"\"
+    '''
     FALLBACK: If BeautifulSoup fails, use trafilatura
-    \"\"\"
+    '''
     try:
-        print(f\"📄 Fallback (trafilatura): {url[:50]}\")
+        print(f'📄 Fallback (trafilatura): {url[:50]}')
         
         downloaded = trafilatura.fetch_url(url, timeout=10)
         if not downloaded:
@@ -624,15 +618,16 @@ def fallback_scrape_trafilatura(url):
             return None
         
         # UTF-8 safe
-        text = text.encode(\"utf-8\", errors=\"ignore\").decode(\"utf-8\")
+        text = text.encode('utf-8', errors='ignore').decode('utf-8')
         
         word_count = len(text.split())
-        print(f\"✅ Fallback success: {word_count} words\")
+        print(f'✅ Fallback success: {word_count} words')
         
         return text[:5000]
     
     except Exception as e:
-        print(f\"❌ Fallback also failed: {str(e)[:50]}\")
+        print(f'❌ Fallback also failed: {str(e)[:50]}')
+        return None
         return None
 
 def search_serper(query):
