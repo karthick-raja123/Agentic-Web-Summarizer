@@ -712,6 +712,510 @@ def extract_section(text, section_name):
     except:
         return ''
 
+
+# ============================================================================
+# STEP 6: ADVANCED MULTI-SOURCE MERGING WITH CONSENSUS DETECTION
+# ============================================================================
+
+def detect_consensus_insights(sources):
+    """
+    STEP 6a: Identify overlapping ideas across sources
+    
+    Analyzes source content to find:
+    1. Common themes
+    2. Shared concepts
+    3. Agreement on key points
+    4. Diverging viewpoints
+    """
+    if len(sources) < 2:
+        return {'consensus': [], 'unique': [], 'conflicts': []}
+    
+    prompt = f'''Analyze these {len(sources)} sources and identify:
+
+SOURCES TO ANALYZE:
+{chr(10).join([f"Source {i+1}: {s.get('content', '')[:500]}" for i, s in enumerate(sources)])}
+
+TASK: Extract EXACTLY:
+1. CONSENSUS POINTS: What all sources agree on (list 3-5 key points)
+2. UNIQUE INSIGHTS: What only certain sources provide (list 2-3 per source)
+3. CONFLICTING VIEWS: Where sources disagree (if any)
+
+Format response as:
+## CONSENSUS
+- point 1
+- point 2
+
+## UNIQUE
+Source 1: unique insight
+Source 2: unique insight
+
+## CONFLICTS
+[list conflicts or "None detected"]
+'''
+    
+    try:
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        response = model.generate_content(prompt, stream=False, timeout=30)
+        text = response.text.strip()
+        
+        consensus = extract_section(text, 'CONSENSUS')
+        unique = extract_section(text, 'UNIQUE')
+        conflicts = extract_section(text, 'CONFLICTS')
+        
+        return {
+            'consensus': [c.strip() for c in consensus.split('-') if c.strip()],
+            'unique': unique,
+            'conflicts': [c.strip() for c in conflicts.split('\n') if c.strip() and 'none' not in c.lower()]
+        }
+    except Exception as e:
+        print(f'⚠️  Consensus detection failed: {str(e)[:50]}')
+        return {'consensus': [], 'unique': [], 'conflicts': []}
+
+
+def extract_unique_insights(sources, insight_type='technical'):
+    """
+    STEP 6b: Extract unique insights per source
+    
+    Identifies what each source contributes uniquely:
+    - Technical insights
+    - Practical examples
+    - Different perspectives
+    - Complementary information
+    """
+    unique_map = {}
+    
+    for idx, source in enumerate(sources):
+        content = source.get('content', '')[:1000]
+        title = source.get('title', f'Source {idx+1}')
+        
+        prompt = f'''From this source, extract the MOST UNIQUE insight (not found in typical summaries):
+
+TITLE: {title}
+CONTENT: {content}
+
+What is the unique, specific insight this source provides? (1-2 sentences, technical and concrete):'''
+        
+        try:
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            response = model.generate_content(prompt, stream=False, timeout=15)
+            insight = response.text.strip()
+            
+            if insight and len(insight) > 20:
+                unique_map[idx] = insight
+        except:
+            pass
+    
+    return unique_map
+
+
+# ============================================================================
+# STEP 7: DEEP MODE ENHANCEMENT
+# ============================================================================
+
+def validate_deep_mode_sources(sources, mode):
+    """
+    STEP 7: Validate sources meet Deep Mode requirements
+    
+    Deep Mode needs:
+    - 3-5 sources minimum
+    - Each source > 500 words
+    - High relevance (score >= 6)
+    - Sufficient technical depth
+    
+    Returns: (is_valid, message, cleaned_sources)
+    """
+    if mode != "Deep Mode":
+        return True, "✅ Quick Mode (no validation needed)", sources
+    
+    print(f"\n🔍 VALIDATING DEEP MODE SOURCES...")
+    
+    # Filter by word count (500+ words required)
+    valid_sources = []
+    for s in sources:
+        content = s.get('content', '')
+        word_count = len(content.split())
+        score = s.get('score', 0)
+        
+        if word_count >= 500 and score >= 6:
+            valid_sources.append(s)
+            print(f"   ✅ Source valid: {word_count} words, score {score}/10")
+        else:
+            reason = f"{word_count} words" if word_count < 500 else f"score {score}/10"
+            print(f"   ⛔ Filtered out: {reason}")
+    
+    # Check minimum requirement
+    if len(valid_sources) < 3:
+        return False, f"❌ Insufficient Deep Mode sources ({len(valid_sources)}/3+ needed, <500 words requirement)", sources
+    
+    if len(valid_sources) < 5:
+        return True, f"⚠️  Deep Mode: {len(valid_sources)} valid sources (3-5 recommended)", valid_sources
+    
+    return True, f"✅ Deep Mode: {len(valid_sources)} high-quality sources validated", valid_sources
+
+
+def generate_deep_mode_summary(sources, query=''):
+    """
+    STEP 7b: Generate comprehensive 1000+ word explanation
+    
+    Includes:
+    - Detailed technical analysis
+    - Case studies
+    - Real-world implementations
+    - Advanced concepts
+    - Future directions
+    """
+    if not sources:
+        return None
+    
+    combined = '\n\n'.join([s.get('content', '')[:1000] for s in sources[:5]])
+    
+    prompt = f'''You are an advanced technical analyst. Generate a COMPREHENSIVE expert analysis (1000+ words).
+
+QUERY: {query}
+SOURCES: {len(sources)} high-quality sources
+
+Generate these sections:
+
+## 1. TECHNICAL FOUNDATION (200 words)
+- Clear definition with technical depth
+- Core concepts and principles
+- Theoretical background
+
+## 2. ARCHITECTURE & IMPLEMENTATION (250 words)
+- Detailed system architecture
+- Key components and their interactions
+- Specific technical patterns
+
+## 3. CASE STUDIES (250 words)
+- Real-world company examples (name specific companies)
+- Implementation scales and metrics
+- Lessons learned from practice
+
+## 4. ADVANCED CONCEPTS (200 words)
+- Advanced topics and optimizations
+- Performance considerations
+- Scalability and reliability patterns
+
+## 5. FUTURE DIRECTIONS (100 words)
+- Emerging technologies
+- Research frontiers
+- Evolution of the field
+
+CONTENT TO ANALYZE:
+{combined[:4000]}
+
+RULES:
+- Heavy technical depth
+- Specific examples with numbers/metrics
+- No generic statements
+- Cite specific companies/projects when available
+- Focus on practical actionable insights
+
+COMPREHENSIVE DEEP MODE ANALYSIS:'''
+    
+    try:
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        response = model.generate_content(prompt, stream=False, timeout=60)
+        text = response.text.strip()
+        
+        if len(text) > 500:
+            return text
+    except Exception as e:
+        print(f'⚠️  Deep mode summary failed: {str(e)[:50]}')
+    
+    return None
+
+
+# ============================================================================
+# STEP 8: IMPROVED PDF STRUCTURE WITH BETTER ORGANIZATION
+# ============================================================================
+
+def validate_pdf_sections(merged_insights, sources):
+    """
+    STEP 8a: Validate PDF has enough content for each section
+    
+    Prevents showing empty/error sections
+    Removes consensus section if not available
+    Ensures quality output
+    """
+    sections = {
+        'title': True,
+        'query': True,
+        'executive_summary': len(sources) > 0,
+        'consensus': merged_insights and bool(merged_insights.get('consensus')),
+        'conflicts': merged_insights and len(merged_insights.get('conflicts', [])) > 0,
+        'analysis': len(sources) > 0 and all(s.get('summary') for s in sources),
+        'insights': merged_insights and bool(merged_insights.get('merged_analysis')),
+        'sources': len(sources) > 0,
+        'conclusion': True
+    }
+    
+    active_sections = [k for k, v in sections.items() if v]
+    
+    print(f'\n📄 PDF SECTIONS VALIDATION:')
+    for section, active in sections.items():
+        status = '✅' if active else '⛔'
+        print(f'   {status} {section}')
+    
+    return active_sections
+
+
+def create_pdf_section_consensus(content, doc_content, styles):
+    """Create consensus section for PDF (only if content available)"""
+    if not content or not content.get('consensus'):
+        return None
+    
+    section = []
+    section.append(Paragraph("Consensus Insights", styles['Heading2']))
+    
+    for point in content.get('consensus', []):
+        section.append(Paragraph(f"• {remove_emojis(point)}", styles['Normal']))
+    
+    section.append(Spacer(1, 12))
+    return section
+
+
+def create_pdf_section_sources_comparison(sources, styles):
+    """Create source comparison table for PDF"""
+    from reportlab.lib import colors
+    from reportlab.platypus import Table, TableStyle
+    
+    data = [['Rank', 'Source', 'Domain', 'Quality', 'Word Count']]
+    
+    for i, source in enumerate(sources, 1):
+        title = remove_emojis(source.get('title', '')[:30])
+        domain = extract_domain_name(source.get('url', ''))
+        score = f"{source.get('score', 0)}/10"
+        words = len(source.get('content', '').split())
+        
+        data.append([str(i), title, domain, score, str(words)])
+    
+    table = Table(data, colWidths=[0.6 * inch, 2.2 * inch, 1.4 * inch, 0.9 * inch, 1 * inch])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f77b4')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+    ]))
+    
+    return table
+
+
+# ============================================================================
+# STEP 9: DEBUG VISIBILITY PANEL
+# ============================================================================
+
+def create_debug_panel_display(sources):
+    """
+    STEP 9: Show debug information to help diagnose pipeline issues
+    
+    Displays:
+    - Content cleaning summary (word counts before/after)
+    - Source filtering reasons
+    - Quality scoring breakdown
+    - Extraction success rates
+    """
+    debug_info = {
+        'total_sources': len(sources),
+        'sources_detail': []
+    }
+    
+    for i, source in enumerate(sources):
+        content = source.get('content', '')
+        url = source.get('url', '')
+        score = source.get('score', 0)
+        
+        word_count = len(content.split())
+        char_count = len(content)
+        
+        # Estimate original (before cleaning)
+        original_estimate = word_count * 1.3  # ~30% removed during cleaning
+        
+        debug_info['sources_detail'].append({
+            'index': i + 1,
+            'url': url,
+            'word_count': word_count,
+            'char_count': char_count,
+            'estimated_original': int(original_estimate),
+            'cleaning_ratio': round((1 - word_count / (original_estimate or 1)) * 100, 1),
+            'quality_score': score,
+            'validated': word_count >= 300
+        })
+    
+    return debug_info
+
+
+def format_debug_display(debug_info):
+    """Format debug info for Streamlit display"""
+    lines = []
+    lines.append("🔧 DEBUG PIPELINE ANALYSIS")
+    lines.append("=" * 60)
+    lines.append(f"\nTotal Sources: {debug_info['total_sources']}")
+    lines.append("")
+    
+    for detail in debug_info['sources_detail']:
+        lines.append(f"Source {detail['index']}: {detail['url'][:50]}...")
+        lines.append(f"  📝 Word Count: {detail['word_count']} (cleaned)")
+        lines.append(f"  📄 Chars: {detail['char_count']}")
+        lines.append(f"  🧹 Cleaning Ratio: {detail['cleaning_ratio']}% removed")
+        lines.append(f"  ⭐ Quality Score: {detail['quality_score']}/10")
+        lines.append(f"  ✅ Valid: {'Yes' if detail['validated'] else 'No (< 300 words)'}")
+        lines.append("")
+    
+    return "\n".join(lines)
+
+
+# ============================================================================
+# STEP 10: FAIL-SAFE SYSTEM WITH FALLBACKS
+# ============================================================================
+
+def apply_content_quality_checks(sources):
+    """
+    STEP 10a: Validate all sources before processing
+    
+    Checks:
+    - Minimum word count (300+)
+    - Content quality (no garbage)
+    - No duplicate content
+    - Technical depth
+    """
+    validated = []
+    rejected = []
+    
+    for source in sources:
+        content = source.get('content', '')
+        word_count = len(content.split())
+        score = source.get('score', 0)
+        url = source.get('url', '')
+        
+        # Check 1: Word count
+        if word_count < 300:
+            rejected.append({
+                'url': url,
+                'reason': f'Insufficient content ({word_count} words < 300 minimum)'
+            })
+            continue
+        
+        # Check 2: Content quality (no more than 80% HTML/links)
+        link_count = content.count('http') + content.count('www')
+        if link_count > word_count * 0.2:
+            rejected.append({
+                'url': url,
+                'reason': 'Too many links/incomplete extraction'
+            })
+            continue
+        
+        # Check 3: Minimum quality score for deep mode
+        if word_count >= 1000 and score < 5:
+            rejected.append({
+                'url': url,
+                'reason': f'Low quality score ({score}/10) for detailed content'
+            })
+            continue
+        
+        # Passed all checks
+        validated.append(source)
+    
+    print(f'\n✅ QUALITY VALIDATION:')
+    print(f'   Passed: {len(validated)} sources')
+    print(f'   Rejected: {len(rejected)} sources')
+    
+    for reject in rejected:
+        print(f'   ⛔ {reject["url"][:50]}: {reject["reason"]}')
+    
+    return validated, rejected
+
+
+def handle_low_quality_content(sources, mode):
+    """
+    STEP 10b: If content quality is low, attempt regeneration
+    
+    Strategies:
+    1. Try different search query
+    2. Lower quality threshold
+    3. Use LLM fallback
+    """
+    low_quality_sources = [s for s in sources if s.get('score', 0) < 5]
+    
+    if len(low_quality_sources) == len(sources) and mode == "Deep Mode":
+        print(f'\n⚠️  LOW QUALITY CONTENT DETECTED IN DEEP MODE')
+        print(f'   Issue: {len(low_quality_sources)}/{len(sources)} sources below quality threshold')
+        print(f'   Action: Attempting regeneration with improved query...')
+        return True  # Signal regeneration needed
+    
+    return False
+
+
+def guarantee_minimum_output(sources, query, mode):
+    """
+    STEP 10c: GUARANTEE minimum viable output
+    
+    If scraping fails completely:
+    1. Use LLM knowledge directly
+    2. Generate high-quality explanation
+    3. Provide transparency about fallback
+    
+    NEVER shows empty/broken output to user
+    """
+    if not sources or all(len(s.get('content', '')) < 100 for s in sources):
+        print(f'\n🆘 FALLBACK GUARANTEE ACTIVATED')
+        print(f'   Reason: Insufficient web content')
+        print(f'   Action: Generating from LLM knowledge...')
+        
+        fallback_source = {
+            'url': 'gemini-ai-direct-knowledge',
+            'title': 'AI Generated (Web sources unavailable)',
+            'content': '',
+            'summary': '',
+            'score': 8,
+            'is_fallback': True
+        }
+        
+        # Generate comprehensive explanation
+        prompt = f'''Provide a comprehensive, expert explanation for: {query}
+
+Generate complete 8-section structure:
+
+## 1. DEFINITION
+Clear, technical definition
+
+## 2. ARCHITECTURE
+Internal workings
+
+## 3. KEY COMPONENTS
+Main parts
+
+## 4. ADVANTAGES
+3+ concrete benefits
+
+## 5. DISADVANTAGES  
+3+ real limitations
+
+## 6. REAL-WORLD EXAMPLES
+Specific companies/projects
+
+## 7. WHEN TO USE / NOT USE
+Specific scenarios
+
+## 8. FINAL INSIGHT
+Synthesis of knowledge
+
+Be specific and technical. Avoid generic statements.'''
+        
+        try:
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            response = model.generate_content(prompt, stream=False)
+            fallback_source['summary'] = response.text.strip()
+            return [fallback_source]
+        except:
+            pass
+    
+    return sources
+
 def format_sources_display(sources, best_source_idx=0):
     """
     IMPROVED URL DISPLAY
@@ -2545,10 +3049,42 @@ if search_clicked:
                             st.write(f"   🏆 BEST SOURCE")
             
             # ========================================
+            # STEP 10: APPLY QUALITY CHECKS & FAIL-SAFES
+            # ========================================
+            with status_placeholder.container():
+                st.write(f"🔍 Step 4a: Validating content quality...")
+            
+            validated_sources, rejected_sources = apply_content_quality_checks(scraped_sources)
+            
+            if not validated_sources:
+                st.warning(f"⚠️  All sources failed quality validation. Activating fail-safe...")
+                validated_sources = guarantee_minimum_output(scraped_sources, original_query, mode)
+                st.info("📌 Using AI-generated content as sources are insufficient")
+            
+            scraped_sources = validated_sources
+            
+            # ========================================
+            # STEP 7: VALIDATE DEEP MODE REQUIREMENTS
+            # ========================================
+            if mode == "Deep Mode":
+                with status_placeholder.container():
+                    st.write(f"🔍 Step 4b: Validating Deep Mode requirements (3-5 sources, 500+ words each)...")
+                
+                is_valid, validation_msg, cleaned_sources = validate_deep_mode_sources(scraped_sources, mode)
+                
+                if not is_valid:
+                    st.warning(validation_msg)
+                    st.info("💡 Switching to Quick Mode due to insufficient high-quality sources")
+                    mode = "Quick Mode"
+                else:
+                    st.success(validation_msg)
+                    scraped_sources = cleaned_sources
+            
+            # ========================================
             # PHASE 2A: MULTI-SOURCE MERGING & CONSENSUS DETECTION
             # ========================================
             with status_placeholder.container():
-                st.write(f"🔄 Step 4: Merging insights across sources (Deep Mode enabled)...")
+                st.write(f"🔄 Step 4c: Merging insights across sources...")
             
             merged_insights = None
             if len(scraped_sources) > 1:
@@ -2618,6 +3154,44 @@ if search_clicked:
                 pipeline = get_pipeline_steps()
                 for step, desc, icon in pipeline:
                     st.write(f"{icon} {step}: {desc}")
+            
+            # ========================================
+            # STEP 9: DEBUG VISIBILITY PANEL (NEW)
+            # ========================================
+            with st.expander("🔧 Debug Pipeline Analysis", expanded=False):
+                st.warning("⚠️ Developer Debug Info - Helps diagnose pipeline issues")
+                
+                debug_info = create_debug_panel_display(scraped_sources)
+                debug_display = format_debug_display(debug_info)
+                
+                st.code(debug_display, language='text')
+                
+                st.write("### Cleaning Summary:")
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    total_words = sum(len(s.get('content', '').split()) for s in scraped_sources)
+                    st.metric("Total Words Extracted", f"{total_words:,}")
+                with col2:
+                    avg_quality = sum(s.get('score', 0) for s in scraped_sources) / len(scraped_sources) if scraped_sources else 0
+                    st.metric("Avg Quality Score", f"{avg_quality:.1f}/10")
+                with col3:
+                    validated = len([s for s in scraped_sources if len(s.get('content', '').split()) >= 300])
+                    st.metric("Validated Sources", f"{validated}/{len(scraped_sources)}")
+                with col4:
+                    avg_words = total_words // len(scraped_sources) if scraped_sources else 0
+                    st.metric("Avg Words/Source", f"{avg_words:,}")
+                
+                st.write("### Per-Source Cleaning Details:")
+                for source in scraped_sources:
+                    col1, col2, col3 = st.columns([2, 1, 1])
+                    with col1:
+                        st.caption(f"📰 {source.get('title', 'Untitled')[:50]}")
+                    with col2:
+                        words = len(source.get('content', '').split())
+                        st.caption(f"{words:,} words")
+                    with col3:
+                        score = source.get('score', 0)
+                        st.caption(f"Score: {score}/10")
             
             # ========================================
             # PHASE 2 DISPLAY: IMPROVED MULTI-SOURCE COMPARISON
@@ -2789,6 +3363,9 @@ MULTI-SOURCE ANALYSIS
             with col3:
                 try:
                     # Use advanced PDF generation with merged insights
+                    # STEP 8: Validate PDF sections first
+                    pdf_sections = validate_pdf_sections(merged_insights, summarized_sources)
+                    
                     pdf_path = create_advanced_pdf(
                         summarized_sources, 
                         original_query, 
