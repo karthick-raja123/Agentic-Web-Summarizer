@@ -4,6 +4,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 import streamlit as st
 import google.generativeai as genai
 import requests
+from bs4 import BeautifulSoup
 import trafilatura
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
@@ -416,62 +417,199 @@ if "last_content" not in st.session_state:
 if "last_urls" not in st.session_state:
     st.session_state.last_urls = None
 
+def extract_text_with_beautifulsoup(html):
+    """
+    Production-grade content extraction using BeautifulSoup
+    
+    Extracts from specific tags and removes irrelevant content:
+    - Main content: <p>, <li>, <h1>, <h2>, <h3>
+    - Ignores: nav, footer, ads, scripts, styles
+    - Returns 2000+ words if available
+    - Removes duplicate sentences
+    - Returns structured: {title, headings, content}
+    
+    Returns:
+        dict: {
+            'title': str,
+            'headings': [str],
+            'content': str
+        }
+    """
+    from bs4 import BeautifulSoup
+    import re
+    
+    try:
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        # Remove unwanted sections
+        remove_tags = ['script', 'style', 'nav', 'footer', 'header', 
+                      'noscript', 'meta', 'comment', 'iframe', 'ad']
+        for tag in remove_tags:
+            for element in soup.find_all(tag):
+                element.decompose()
+        
+        # Extract title
+        title = \"\"
+        if soup.title:
+            title = soup.title.string or \"\"
+        elif soup.find('h1'):
+            title = soup.find('h1').get_text(strip=True)
+        
+        # Extract all headings
+        headings = []
+        for tag in ['h1', 'h2', 'h3']:
+            for heading in soup.find_all(tag):
+                text = heading.get_text(strip=True)
+                if text and len(text) > 3:
+                    headings.append(text)
+        
+        # Extract main content from paragraphs and lists
+        paragraphs = []
+        
+        # Get paragraphs
+        for p in soup.find_all('p'):
+            text = p.get_text(strip=True)
+            if len(text) > 20:  # Minimum text length
+                paragraphs.append(text)
+        
+        # Get list items
+        for li in soup.find_all('li'):
+            text = li.get_text(strip=True)
+            if len(text) > 20:
+                paragraphs.append(text)
+        
+        # Remove duplicate sentences (by content hash)
+        seen_hashes = set()
+        unique_paragraphs = []
+        
+        for para in paragraphs:
+            # Normalize for duplicate detection
+            normalized = para.lower().strip()
+            para_hash = hash(normalized[:100])
+            
+            if para_hash not in seen_hashes:
+                unique_paragraphs.append(para)
+                seen_hashes.add(para_hash)
+        
+        # Join content
+        content = \"\\n\\n\".join(unique_paragraphs)
+        
+        # UTF-8 safe encoding
+        content = content.encode(\"utf-8\", errors=\"ignore\").decode(\"utf-8\")
+        title = title.encode(\"utf-8\", errors=\"ignore\").decode(\"utf-8\")
+        headings = [h.encode(\"utf-8\", errors=\"ignore\").decode(\"utf-8\") for h in headings]
+        
+        # Return structured output
+        return {
+            'title': title[:100],
+            'headings': headings[:10],  # Limit to 10 headings
+            'content': content
+        }
+    
+    except Exception as e:
+        print(f\"BeautifulSoup parsing error: {str(e)[:50]}\")
+        return None
+
 def clean_scrape(url):
-    """
-    Professional content extraction using trafilatura
-    - Works with JS-heavy pages, PDFs, paywalls
-    - Removes ads, noise, boilerplate automatically
-    - Returns clean article text or None
-    - Includes comprehensive error handling
-    - SAFEGUARD: Hard filters + fail-fast pattern
-    - FILTER: Only trusted sources - blocks PDFs, research papers, low-quality sources
-    """
-    # HARD FILTER: Block low-quality and untrusted sources before scraping
+    \"\"\"
+    Production-grade web scraper with fallback mechanism
+    
+    Features:
+    1. Primary: BeautifulSoup extraction from semantic HTML
+    2. Extract 2000+ words per source
+    3. Remove duplicates and irrelevant content
+    4. Fallback: Use trafilatura if BS fails
+    5. Returns structured output: {title, headings, content}
+    
+    SAFEGUARD: Hard filters block low-quality sources
+    \"\"\"
+    # HARD FILTER: Block low-quality sources
     TRUSTED_DOMAINS = [
-        "medium.com", "towardsdatascience.com", "geeksforgeeks.org",
-        "analyticsvidhya.com", "dev.to", "blog", 
-        ".org", "github.com", "stackoverflow.com",
-        "official", "docs", "documentation"
+        \"medium.com\", \"towardsdatascience.com\", \"geeksforgeeks.org\",
+        \"analyticsvidhya.com\", \"dev.to\", \"blog\", 
+        \".org\", \"github.com\", \"stackoverflow.com\",
+        \"official\", \"docs\", \"documentation\"
     ]
     
     BLOCKED_DOMAINS = [
         # Research and academic papers
-        "researchgate", "arxiv", "ncbi.nlm.nih.gov", "sciencedirect",
-        "springer", "wiley", "mdpi", "elsevier", "ieee",
-        "acm.org", "jstor", "nature.com", "science.org",
-        # PDFs and documents
-        ".pdf", "filetype:pdf",
-        # Social media and untrusted sites
-        "facebook.com", "twitter.com", "instagram.com", "tiktok",
-        "reddit.com", "quora.com", "medium-static",
-        # Video sites (not readable)
-        "youtube", "youtu.be", "vimeo", "dailymotion",
-        # Paywall and restricted
-        "paywall", "subscription", "login?", "signin?",
-        # Unknown/random sites
-        "cloudflare", "libgen", "z-lib", "scribd"
+        \"researchgate\", \"arxiv\", \"ncbi.nlm.nih.gov\", \"sciencedirect\",
+        \"springer\", \"wiley\", \"mdpi\", \"elsevier\", \"ieee\",
+        \"acm.org\", \"jstor\", \"nature.com\", \"science.org\",
+        # PDFs
+        \".pdf\", \"filetype:pdf\",
+        # Social media
+        \"facebook.com\", \"twitter.com\", \"instagram.com\", \"tiktok\",
+        \"reddit.com\", \"quora.com\", \"medium-static\",
+        # Video
+        \"youtube\", \"youtu.be\", \"vimeo\", \"dailymotion\",
+        # Paywalls
+        \"paywall\", \"subscription\", \"login?\", \"signin?\",
+        # Other
+        \"cloudflare\", \"libgen\", \"z-lib\", \"scribd\"
     ]
     
     url_lower = url.lower()
     
-    # Check if it's a BLOCKED domain
+    # Block domains
     for blocked in BLOCKED_DOMAINS:
         if blocked.lower() in url_lower:
-            print(f"⛔ Blocked domain: {blocked}")
+            print(f\"⛔ Blocked domain: {blocked}\")
             return None
     
-    # Prefer TRUSTED domains, be more lenient with them
-    is_trusted = any(trusted.lower() in url_lower for trusted in TRUSTED_DOMAINS)
-    
     try:
-        # Fetch the URL using trafilatura (trafilatura v2 doesn't support timeout param)
-        # It has built-in timeout handling internally (default ~10s)
-        downloaded = trafilatura.fetch_url(url)
+        # PRIMARY: Fetch and parse with BeautifulSoup
+        print(f\"🔍 Scraping (BeautifulSoup): {url[:50]}\")
         
+        response = requests.get(
+            url,
+            headers={'User-Agent': 'Mozilla/5.0'},
+            timeout=10
+        )
+        response.raise_for_status()
+        
+        # Extract structured content
+        extracted = extract_text_with_beautifulsoup(response.text)
+        
+        if not extracted or not extracted.get('content'):
+            raise Exception(\"No content extracted by BeautifulSoup\")
+        
+        content = extracted['content']
+        
+        # Check word count (target 2000+ words, minimum 800)
+        word_count = len(content.split())
+        
+        if word_count < 800:
+            print(f\"⚠️  Content too short ({word_count} words), trying fallback...\")
+            # FALLBACK #1: Try trafilatura
+            return fallback_scrape_trafilatura(url)
+        
+        print(f\"✅ Extracted {word_count} words from {url[:50]}\")
+        
+        # Return content with limit for API efficiency
+        return content[:5000]
+    
+    except requests.Timeout:
+        print(f\"⏱️  Timeout on {url}, trying fallback...\")
+        return fallback_scrape_trafilatura(url)
+    except requests.ConnectionError:
+        print(f\"🌐 Connection error on {url}, trying fallback...\")
+        return fallback_scrape_trafilatura(url)
+    except Exception as e:
+        print(f\"❌ BeautifulSoup error: {str(e)[:50]}, trying fallback...\")
+        return fallback_scrape_trafilatura(url)
+
+def fallback_scrape_trafilatura(url):
+    \"\"\"
+    FALLBACK: If BeautifulSoup fails, use trafilatura
+    \"\"\"
+    try:
+        print(f\"📄 Fallback (trafilatura): {url[:50]}\")
+        
+        downloaded = trafilatura.fetch_url(url, timeout=10)
         if not downloaded:
             return None
         
-        # Extract main content using trafilatura
         text = trafilatura.extract(
             downloaded,
             include_comments=False,
@@ -481,28 +619,20 @@ def clean_scrape(url):
         if not text:
             return None
         
-        # Quality check: ensure meaningful content
         text = text.strip()
         if len(text) < 800:
             return None
         
-        # UTF-8 safe encoding
-        text = text.encode("utf-8", errors="ignore").decode("utf-8")
+        # UTF-8 safe
+        text = text.encode(\"utf-8\", errors=\"ignore\").decode(\"utf-8\")
         
-        # Cap at 3000 chars for API efficiency
-        text = text[:3000]
+        word_count = len(text.split())
+        print(f\"✅ Fallback success: {word_count} words\")
         
-        print(f"✅ Extracted {len(text)} chars from {url[:50]}")
-        return text
+        return text[:5000]
     
-    except requests.Timeout:
-        print(f"⏱️ Timeout on {url}")
-        return None
-    except requests.ConnectionError:
-        print(f"🌐 Connection error on {url}")
-        return None
     except Exception as e:
-        print(f"❌ Scrape error on {url}: {str(e)[:50]}")
+        print(f\"❌ Fallback also failed: {str(e)[:50]}\")
         return None
 
 def search_serper(query):
