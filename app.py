@@ -715,10 +715,11 @@ def format_sources_display(sources, best_source_idx=0):
         domain = extract_domain_name(url)
         
         # Get preview (first 2 lines)
-        preview_lines = content.split('\n')[:2]
-        preview = ' '.join(preview_lines)[:100] + '...'
+        preview_lines = content.split('\n')[:2] if content else []
+        preview = ' '.join(preview_lines)[:100] + '...' if preview_lines else 'No preview'
         
-        # Score indicator
+        # Score indicator - Initialize highlight for all cases
+        highlight = ''  # Default empty
         if score >= 8:
             score_indicator = '⭐⭐⭐'
             highlight = '🏆 BEST SOURCE' if i == best_source_idx else ''
