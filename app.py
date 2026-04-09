@@ -414,8 +414,17 @@ Provide the structured 7-section summary:"""
 def generate_final_insight(summaries_list, query, mode="Student"):
     """
     PHASE 2: Generate final insight combining all sources with retry and fallback
+    Supports both old modes (Beginner, Student, Research) and new modes (Quick, Deep)
     """
     print(f"\n✨ PHASE 2: Generating Final Insight...")
+    
+    # Map new modes to appropriate descriptions
+    if "Quick" in str(mode):
+        mode_description = "Brief, concise synthesis"
+    elif "Deep" in str(mode):
+        mode_description = "Comprehensive, detailed synthesis with case studies"
+    else:
+        mode_description = f"Analysis in {mode} mode"
     
     formatted_summaries = "\n\n".join([
         f"[Source {i+1}: {s.get('title', 'Unknown')}]\n{s.get('summary', 'No summary available')}"
@@ -425,22 +434,24 @@ def generate_final_insight(summaries_list, query, mode="Student"):
     prompt = f"""You are an expert analyst synthesizing information from {len(summaries_list)} sources.
 
 Query: {query}
-Mode: {mode}
+Analysis Depth: {mode_description}
 
 INDIVIDUAL SOURCE SUMMARIES:
 {formatted_summaries}
 
 Provide a UNIFIED FINAL INSIGHT that:
-1. Synthesizes all perspectives
-2. Identifies common themes
+1. Synthesizes all perspectives into one coherent explanation
+2. Identifies common themes and consensus
 3. Highlights unique insights from each source
 4. Provides your expert recommendation
+5. Explains confidence level based on source agreement
 
 Use this format:
 **Synthesis**: What all sources agree on
-**Key Differences**: Where sources differ
-**Expert Recommendation**: Your unified insight
-**Confidence**: High/Medium based on number of sources"""
+**Key Differences**: Where sources provide complementary views
+**Unique Insights**: Standout points from specific sources
+**Expert Recommendation**: Your unified conclusion
+**Confidence**: Level of agreement across sources"""
     
     for attempt in range(2):
         try:
@@ -470,22 +481,37 @@ Based on {len(summaries_list)} sources analyzing "{query}":
 {source_list}
 
 **Key Insights**: 
-The sources provide complementary perspectives on this topic. Each source contributes unique technical insights.
+The sources provide complementary and reinforcing perspectives on this topic. Each source contributes unique technical insights.
+
+**Unique Perspectives**: 
+- Different sources emphasize different aspects of the topic
+- Combined, they provide a more complete understanding
+- Some sources may focus on theory, others on practical applications
 
 **Expert Recommendation**: 
-Combining all sources gives a comprehensive understanding of the subject.
+Combining all sources gives a comprehensive and well-rounded understanding of the subject. Use the highest-scoring sources as primary references.
 
-**Confidence**: Medium - Based on {len(summaries_list)} quality sources"""
+**Confidence**: 
+{"High" if len(summaries_list) >= 5 and all(s.get("score", 0) >= 7 for s in summaries_list) else "Medium"} - Based on {len(summaries_list)} quality sources with {"strong" if all(s.get("score", 0) >= 7 for s in summaries_list) else "varied"} credibility"""
     
     return synthesis
 
 def generate_actionable_insights(summary, mode="Student"):
     """
     PHASE 3: Generate actionable next steps with retry and fallback
+    Supports both old modes (Beginner, Student, Research) and new modes (Quick, Deep)
     """
     print(f"\n💡 PHASE 3: Generating Actionable Insights ({mode})...")
     
-    if mode == "Beginner":
+    # Map new modes to old ones for compatibility
+    if "Quick" in mode:
+        actual_mode = "Student"
+    elif "Deep" in mode:
+        actual_mode = "Research"
+    else:
+        actual_mode = mode  # Keep original for backward compatibility
+    
+    if actual_mode == "Beginner":
         fallback_steps = [
             "1. Start with fundamentals - Learn basic concepts and terminology",
             "2. Find beginner-friendly tutorials - Look for interactive guides",
@@ -495,7 +521,7 @@ def generate_actionable_insights(summary, mode="Student"):
         ]
         next_steps_prompt = """What should a beginner do first to start learning this?
 Provide 3-5 concrete, actionable steps."""
-    elif mode == "Student":
+    elif actual_mode == "Student":
         fallback_steps = [
             "1. Master the core concepts - Understand underlying principles",
             "2. Practice with real projects - Apply learning in practical scenarios",
@@ -505,7 +531,7 @@ Provide 3-5 concrete, actionable steps."""
         ]
         next_steps_prompt = """What should a student focus on to master this concept?
 Provide 3-5 practical exercises or projects."""
-    else:  # Research
+    else:  # Research or Deep Mode
         fallback_steps = [
             "1. Study cutting-edge papers - Read latest research publications",
             "2. Explore open problems - Identify gaps in current knowledge",
@@ -513,17 +539,17 @@ Provide 3-5 practical exercises or projects."""
             "4. Contribute to research - Publish findings and collaborate",
             "5. Stay updated - Follow research communities and conferences"
         ]
-        next_steps_prompt = """What are the current research frontiers in this area?
-Provide 3-5 advanced topics or research directions."""
+        next_steps_prompt = """What are the current research frontiers and advanced applications in this area?
+Provide 3-5 advanced topics, research directions, or case studies."""
     
     prompt = f"""Based on this content:
 {summary[:1500]}
 
-MODE: {mode}
+MODE: {actual_mode}
 
 {next_steps_prompt}
 
-Format as numbered list."""
+Format as numbered list with detailed explanations."""
     
     for attempt in range(2):
         try:
@@ -541,6 +567,364 @@ Format as numbered list."""
     
     # FALLBACK: Return default steps
     return "\n".join(fallback_steps)
+
+def extract_domain_name(url):
+    """Extract clean domain name from URL"""
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        domain = parsed.netloc.replace('www.', '')
+        return domain[:50]  # Limit to 50 chars
+    except:
+        return "Source"
+
+def merge_multi_source_insights(sources, query=''):
+    """
+    ADVANCED MULTI-SOURCE MERGING
+    
+    1. Identify overlapping information
+    2. Remove redundancy
+    3. Highlight unique insights per source
+    4. Generate consensus insights
+    5. Detect conflicting views
+    6. Return structured output
+    
+    Returns:
+    {
+        'merged_analysis': str (unified analysis),
+        'consensus': str (agreed-upon points),
+        'conflicts': list (conflicting views if any),
+        'unique_insights': dict (unique per source),
+        'structured_output': str (formatted overview)
+    }
+    """
+    print(f"\n🔄 PHASE 2A: Advanced Multi-Source Merging...")
+    
+    if not sources or len(sources) < 2:
+        return {
+            'merged_analysis': sources[0].get('summary', '') if sources else 'No sources',
+            'consensus': 'Single source analysis',
+            'conflicts': [],
+            'unique_insights': {},
+            'structured_output': ''
+        }
+    
+    # Combine all content
+    combined_content = '\n\n'.join([s.get('content', '') for s in sources if s.get('content')])
+    
+    # Generate merged analysis prompt
+    prompt = f'''You are an expert at synthesizing information from multiple sources.
+
+QUERY: {query}
+
+SOURCES SUMMARY:
+{combined_content[:4000]}
+
+TASK: Generate a UNIFIED analysis by:
+1. Identifying OVERLAPPING information (consensus across sources)
+2. Highlighting UNIQUE insights from each source
+3. Detecting any CONFLICTING views or disagreements
+4. Creating ONE coherent merged explanation
+
+Return in this EXACT format:
+
+## CONSENSUS INSIGHTS (points all sources agree on):
+- [List 3-4 agreed points]
+
+## UNIQUE INSIGHTS:
+Source 1 Unique: [What only this source provides]
+Source 2 Unique: [What only this source provides]
+Source 3 Unique: [What only this source provides]
+
+## CONFLICTING VIEWS (if any):
+[If sources disagree, explain the differences]
+
+## MERGED ANALYSIS:
+[One unified explanation combining all sources, highlighting overlaps and unique contributions]
+
+## KEY TAKEAWAYS:
+- [Most important learning from the merged view]
+'''
+    
+    try:
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        response = model.generate_content(prompt, stream=False, timeout=60)
+        merged_text = response.text.strip()
+        merged_text = merged_text.encode('utf-8', errors='ignore').decode('utf-8')
+        
+        # Parse response sections
+        consensus = extract_section(merged_text, 'CONSENSUS INSIGHTS')
+        conflicts = extract_section(merged_text, 'CONFLICTING VIEWS')
+        unique = extract_section(merged_text, 'UNIQUE INSIGHTS')
+        analysis = extract_section(merged_text, 'MERGED ANALYSIS')
+        
+        return {
+            'merged_analysis': analysis if analysis else merged_text,
+            'consensus': consensus,
+            'conflicts': [c.strip() for c in conflicts.split('\n') if c.strip()],
+            'unique_insights': unique,
+            'structured_output': merged_text
+        }
+    
+    except Exception as e:
+        print(f"⚠️ Multi-source merging failed: {str(e)[:50]}")
+        return {
+            'merged_analysis': 'Analysis generation failed',
+            'consensus': 'Unable to generate',
+            'conflicts': [],
+            'unique_insights': {},
+            'structured_output': ''
+        }
+
+def extract_section(text, section_name):
+    """Extract a section from the merged analysis text"""
+    try:
+        start = text.find(f'## {section_name}')
+        if start == -1:
+            return ''
+        
+        start = text.find(':', start) + 1
+        end = text.find('##', start)
+        if end == -1:
+            end = len(text)
+        
+        return text[start:end].strip()
+    except:
+        return ''
+
+def format_sources_display(sources, best_source_idx=0):
+    """
+    IMPROVED URL DISPLAY
+    
+    For each source shows:
+    - Title
+    - Clean domain name
+    - Quality score with color
+    - "Open Source" button
+    - Tooltip preview (first 2 lines)
+    - Highlights best source
+    """
+    formatted = []
+    
+    for i, source in enumerate(sources):
+        url = source.get('url', '')
+        title = source.get('title', 'Untitled')[:70]
+        score = source.get('score', 0)
+        content = source.get('content', '')
+        
+        domain = extract_domain_name(url)
+        
+        # Get preview (first 2 lines)
+        preview_lines = content.split('\n')[:2]
+        preview = ' '.join(preview_lines)[:100] + '...'
+        
+        # Score indicator
+        if score >= 8:
+            score_indicator = '⭐⭐⭐'
+            highlight = '🏆 BEST SOURCE' if i == best_source_idx else ''
+        elif score >= 6:
+            score_indicator = '⭐⭐'
+        else:
+            score_indicator = '⭐'
+        
+        formatted.append({
+            'index': i + 1,
+            'url': url,
+            'title': title,
+            'domain': domain,
+            'score': score,
+            'score_indicator': score_indicator,
+            'preview': preview,
+            'highlight': highlight,
+            'is_best': i == best_source_idx
+        })
+    
+    return formatted
+
+def create_advanced_pdf(summarized_sources, query, improved_query, mode, elapsed_time, merged_insights=None):
+    """
+    ADVANCED PDF GENERATION with proper formatting
+    
+    Sections:
+    - Title page with query
+    - Executive Summary
+    - Key Insights
+    - Source Quality Analysis
+    - Full Analysis
+    - Source Details/Citations
+    - Footer with generation timestamp
+    """
+    try:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle, PageTemplate, Frame
+        from reportlab.lib import colors
+        from datetime import datetime
+        
+        # Clean text for PDF
+        clean_query = remove_emojis(query)
+        clean_improved = remove_emojis(improved_query) if improved_query != query else clean_query
+        
+        file_path = "advanced_summary_output.pdf"
+        
+        # Create document with margins
+        doc = SimpleDocTemplate(
+            file_path,
+            pagesize=letter,
+            rightMargin=0.75*inch,
+            leftMargin=0.75*inch,
+            topMargin=1*inch,
+            bottomMargin=0.75*inch
+        )
+        
+        styles = getSampleStyleSheet()
+        
+        # Custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            textColor=colors.HexColor('#1f77b4'),
+            spaceAfter=12,
+            alignment=1  # Center
+        )
+        
+        heading_style = ParagraphStyle(
+            'CustomHeading',
+            parent=styles['Heading2'],
+            fontSize=14,
+            textColor=colors.HexColor('#2ca02c'),
+            spaceAfter=10,
+            spaceBefore=10
+        )
+        
+        subheading_style = ParagraphStyle(
+            'Subheading',
+            parent=styles['Heading3'],
+            fontSize=11,
+            textColor=colors.HexColor('#d62728'),
+            spaceAfter=6
+        )
+        
+        # Build content
+        content = []
+        
+        # ===== PAGE 1: TITLE & QUERY =====
+        content.append(Paragraph("QuickGlance AI", title_style))
+        content.append(Paragraph("Advanced Analysis Report", styles['Heading2']))
+        content.append(Spacer(1, 12))
+        
+        # Query info
+        content.append(Paragraph("<b>Original Query:</b>", heading_style))
+        content.append(Paragraph(clean_query, styles['Normal']))
+        content.append(Spacer(1, 6))
+        
+        if clean_improved != clean_query:
+            content.append(Paragraph("<b>Enhanced Query:</b>", heading_style))
+            content.append(Paragraph(clean_improved, styles['Normal']))
+            content.append(Spacer(1, 6))
+        
+        content.append(Paragraph(f"<b>Analysis Mode:</b> {mode}", styles['Normal']))
+        content.append(Paragraph(f"<b>Sources Analyzed:</b> {len(summarized_sources)}", styles['Normal']))
+        content.append(Paragraph(f"<b>Time Taken:</b> {elapsed_time:.1f} seconds", styles['Normal']))
+        content.append(Spacer(1, 12))
+        content.append(Paragraph(f"<i>Generated on {datetime.now().strftime('%B %d, %Y at %H:%M')}</i>", styles['Normal']))
+        content.append(PageBreak())
+        
+        # ===== PAGE 2: EXECUTIVE SUMMARY =====
+        content.append(Paragraph("Executive Summary", heading_style))
+        
+        if summarized_sources:
+            summary_text = summarized_sources[0].get('summary', 'No summary available')
+            # Limit to first 1000 chars for executive summary
+            summary_preview = remove_emojis(summary_text[:1000])
+            content.append(Paragraph(summary_preview, styles['Normal']))
+            content.append(Spacer(1, 12))
+        
+        content.append(PageBreak())
+        
+        # ===== PAGE 3: KEY INSIGHTS & CONSENSUS =====
+        if merged_insights and merged_insights.get('consensus'):
+            content.append(Paragraph("Consensus Insights", heading_style))
+            consensus_text = remove_emojis(merged_insights['consensus'])
+            content.append(Paragraph(consensus_text, styles['Normal']))
+            content.append(Spacer(1, 12))
+        
+        if merged_insights and merged_insights.get('conflicts'):
+            content.append(Paragraph("Conflicting Viewpoints", heading_style))
+            for conflict in merged_insights['conflicts']:
+                content.append(Paragraph(f"• {remove_emojis(conflict)}", styles['Normal']))
+            content.append(Spacer(1, 12))
+        
+        content.append(PageBreak())
+        
+        # ===== PAGE 4: SOURCE QUALITY ANALYSIS =====
+        content.append(Paragraph("Source Quality Analysis", heading_style))
+        
+        # Create table of sources
+        source_data = [['Rank', 'Source Title', 'Domain', 'Quality Score']]
+        for i, source in enumerate(summarized_sources, 1):
+            title = remove_emojis(source.get('title', '')[:40])
+            domain = extract_domain_name(source.get('url', ''))
+            score = f"{source.get('score', 0)}/10"
+            
+            # Highlight best source
+            highlight = "🏆 BEST" if i == 1 and source.get('score', 0) >= 8 else ""
+            
+            source_data.append([str(i), title, domain, score + highlight])
+        
+        # Create table
+        source_table = Table(source_data, colWidths=[0.8*inch, 3*inch, 1.5*inch, 1.2*inch])
+        source_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f77b4')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
+        ]))
+        content.append(source_table)
+        content.append(Spacer(1, 12))
+        content.append(PageBreak())
+        
+        # ===== PAGE 5+: DETAILED ANALYSIS & SOURCES =====
+        content.append(Paragraph("Detailed Source Analysis", heading_style))
+        
+        for i, source in enumerate(summarized_sources, 1):
+            content.append(Paragraph(f"Source {i}: {remove_emojis(source.get('title', ''))}", subheading_style))
+            content.append(Paragraph(f"<b>URL:</b> {source.get('url', '')}", styles['Normal']))
+            content.append(Paragraph(f"<b>Quality Score:</b> {source.get('score', 0)}/10", styles['Normal']))
+            content.append(Spacer(1, 6))
+            
+            summary = remove_emojis(source.get('summary', 'No summary'))[:500]
+            content.append(Paragraph(summary, styles['Normal']))
+            content.append(Spacer(1, 12))
+        
+        content.append(PageBreak())
+        
+        # ===== FINAL PAGE: FOOTER =====
+        content.append(Spacer(1, 12))
+        content.append(Paragraph("="*60, styles['Normal']))
+        content.append(Spacer(1, 6))
+        content.append(Paragraph("Generated by QuickGlance AI", styles['Normal']))
+        content.append(Paragraph(f"Report generated on {datetime.now().strftime('%B %d, %Y at %H:%M:%S')}", styles['Normal']))
+        content.append(Spacer(1, 6))
+        content.append(Paragraph("This report combines insights from multiple authoritative sources.", styles['Normal']))
+        content.append(Paragraph("Page numbers are added automatically by the PDF reader.", styles['Normal']))
+        
+        # Build PDF
+        doc.build(content)
+        
+        print(f"✅ Advanced PDF created: {file_path}")
+        return file_path
+    
+    except Exception as e:
+        print(f"❌ PDF creation error: {str(e)[:100]}")
+        return None
 
 def format_citations(summaries_list):
     """
@@ -1756,13 +2140,20 @@ st.divider()
 # ============================================================================
 col_search, col_retry = st.columns([4, 1])
 with col_search:
-    # Add mode selector BEFORE search button
-    mode = st.selectbox(
-        "Analysis Mode:",
-        ["Beginner", "Student", "Research"],
-        index=1,
-        help="Beginner: Simple explanations | Student: Academic depth | Research: Advanced deep-dive"
-    )
+    # Add analysis depth selector
+    col_mode, col_depth = st.columns(2)
+    
+    with col_mode:
+        mode = st.selectbox(
+            "Analysis Depth:",
+            ["Quick Mode", "Deep Mode"],
+            index=0,
+            help="Quick: 3 sources, brief summaries | Deep: 7+ sources, detailed analysis with case studies"
+        )
+    
+    with col_depth:
+        summary_length = "Short (300 words)" if mode == "Quick Mode" else "Comprehensive (800+ words)"
+        st.info(f"📊 {summary_length}")
     
     search_clicked = st.button("Search and Analyze", use_container_width=True, key="main_button")
 
@@ -1820,25 +2211,40 @@ if search_clicked:
                 
                 advanced_ranked_urls = rank_urls_advanced(urls)
                 
-                with st.expander(f"View {len(advanced_ranked_urls[:5])} Top Sources"):
-                    for i, url in enumerate(advanced_ranked_urls[:5], 1):
-                        score, score_label = score_url_quality(url)
-                        st.write(f"**{i}.** [{url[:60]}...]({{url}})")
-                        st.caption(f"Quality: {score}/10 - {score_label}")
+                # SELECT SOURCES BASED ON MODE
+                if mode == "Quick Mode":
+                    sources_to_scrape = advanced_ranked_urls[:3]  # Top 3 for quick mode
+                    st.info(f"📊 Quick Mode: Analyzing {len(sources_to_scrape)} top sources")
+                else:  # Deep Mode
+                    sources_to_scrape = advanced_ranked_urls[:7]  # Top 7 for deep mode
+                    st.info(f"📊 Deep Mode: Analyzing {len(sources_to_scrape)} sources for comprehensive coverage")
+                
+                with st.expander(f"View Selected Sources ({len(sources_to_scrape)})"):
+                    formatted = format_sources_display(sources_to_scrape if isinstance(sources_to_scrape[0], dict) else [{'url': u} for u in sources_to_scrape])
+                    for item in formatted:
+                        col1, col2, col3 = st.columns([3, 1, 1])
+                        with col1:
+                            domain = extract_domain_name(item['url'] if isinstance(item, dict) else item)
+                            st.write(f"**{item['index']}. [{domain}]({item['url'] if isinstance(item, dict) else item})**")
+                        with col2:
+                            url_obj = item if isinstance(item, dict) else {'url': item}
+                            st.link_button("🔗 Open", url_obj['url'])
+                        with col3:
+                            st.caption(f"⭐ Quality pending")
             else:
                 st.error("No sources found. Try a different query.")
                 st.stop()
             
             # ========================================
-            # PHASE 2: MULTI-SOURCE ANALYSIS (Per-source, not merged!)
+            # PHASE 2: MULTI-SOURCE ANALYSIS
             # ========================================
             with status_placeholder.container():
-                st.write("📄 Step 3: Extracting content from each source individually...")
+                st.write("📄 Step 3: Extracting content from selected sources...")
             
             with st.spinner("📄 Extracting and analyzing each source..."):
                 try:
                     # PHASE 2 FEATURE: Get per-source content
-                    scraped_sources = scrape_content_v2(advanced_ranked_urls)
+                    scraped_sources = scrape_content_v2(sources_to_scrape)
                     
                     if not scraped_sources:
                         raise Exception("Failed to scrape any sources")
@@ -1855,17 +2261,37 @@ if search_clicked:
                 
                 with st.expander(f"📊 View Source Quality Scores"):
                     for i, source in enumerate(scraped_sources, 1):
+                        domain = extract_domain_name(source.get('url', ''))
                         st.write(f"**Source {i}:** {source['title'][:50]}")
+                        st.write(f"   • Domain: {domain}")
                         st.write(f"   • Quality Score: {source['score']}/10")
                         st.write(f"   • Content: {len(source['content'])} chars")
+                        if i == 1 and source['score'] >= 8:
+                            st.write(f"   🏆 BEST SOURCE")
             
             # ========================================
-            # PHASE 2: PER-SOURCE SUMMARIZATION
+            # PHASE 2A: MULTI-SOURCE MERGING & CONSENSUS DETECTION
             # ========================================
             with status_placeholder.container():
-                st.write(f"📝 Step 4: Summarizing each source independently (Mode: {mode})...")
+                st.write(f"🔄 Step 4: Merging insights across sources (Deep Mode enabled)...")
             
-            with st.spinner("📝 Generating per-source summaries..."):
+            merged_insights = None
+            if len(scraped_sources) > 1:
+                with st.spinner("🔄 Detecting consensus and unique insights..."):
+                    try:
+                        merged_insights = merge_multi_source_insights(scraped_sources, original_query)
+                        print(f"✅ Multi-source merge complete")
+                    except Exception as merge_error:
+                        print(f"Merge error: {str(merge_error)[:50]}")
+                        merged_insights = None
+            
+            # ========================================
+            # PHASE 2B: PER-SOURCE SUMMARIZATION
+            # ========================================
+            with status_placeholder.container():
+                st.write(f"📝 Step 5: Summarizing sources ({mode})...")
+            
+            with st.spinner("📝 Generating summaries..."):
                 try:
                     # PHASE 2 FEATURE: Summarize each source separately
                     summarized_sources = summarize_per_source(scraped_sources, original_query, mode)
@@ -1887,6 +2313,30 @@ if search_clicked:
             st.divider()
             
             # ========================================
+            # PHASE 4: DISPLAY MERGED INSIGHTS (if available)
+            # ========================================
+            if merged_insights:
+                st.markdown("### 🔄 Consensus & Merged Insights")
+                
+                # Show consensus
+                if merged_insights.get('consensus'):
+                    with st.expander("🎯 Consensus Points", expanded=True):
+                        st.markdown(remove_emojis(merged_insights['consensus']))
+                
+                # Show conflicting views if any
+                if merged_insights.get('conflicts') and len(merged_insights['conflicts']) > 0:
+                    with st.expander("⚠️ Conflicting Viewpoints"):
+                        for conflict in merged_insights['conflicts']:
+                            st.warning(f"• {remove_emojis(conflict)}")
+                
+                # Show merged analysis
+                if merged_insights.get('merged_analysis'):
+                    with st.expander("📋 Merged Analysis", expanded=False):
+                        st.markdown(remove_emojis(merged_insights['merged_analysis']))
+                
+                st.divider()
+            
+            # ========================================
             # PHASE 4: DISPLAY PIPELINE
             # ========================================
             with st.expander("📊 View Processing Pipeline", expanded=False):
@@ -1895,31 +2345,50 @@ if search_clicked:
                     st.write(f"{icon} {step}: {desc}")
             
             # ========================================
-            # PHASE 2 DISPLAY: MULTI-SOURCE COMPARISON
+            # PHASE 2 DISPLAY: IMPROVED MULTI-SOURCE COMPARISON
             # ========================================
-            st.markdown("### 📊 Multi-Source Comparison")
+            st.markdown("### 📊 Source-by-Source Analysis")
             
             for i, source in enumerate(summarized_sources, 1):
                 with st.container():
-                    col1, col2 = st.columns([4, 1])
+                    # Improved source header with URL display
+                    domain = extract_domain_name(source.get('url', ''))
+                    url = source.get('url', '')
+                    title = source.get('title', 'Untitled')[:60]
+                    score = source.get('score', 0)
+                    
+                    # Best source indicator
+                    best_badge = " 🏆 BEST SOURCE" if (i == 1 and score >= 8) else ""
+                    
+                    col1, col2, col3, col4 = st.columns([2, 1.5, 0.8, 0.7])
                     
                     with col1:
-                        st.markdown(f"#### 📰 **Source {i}: {source['title'][:50]}**")
-                        st.caption(f"Quality Score: ⭐ {source['score']}/10 ({source['score_label']})")
+                        st.markdown(f"#### 📰 **Source {i}: {title}**{best_badge}")
+                        st.caption(f"**Domain:** {domain}")
                     
                     with col2:
-                        st.metric("Quality", f"{source['score']}/10")
+                        st.link_button("🔗 Open Source", url, use_container_width=True)
+                    
+                    with col3:
+                        st.metric("Quality", f"{score}/10")
+                    
+                    with col4:
+                        # Tooltip preview
+                        content_preview = source.get('content', '')[:100] + "..."
+                        st.caption(f"📄 {len(source.get('content', ''))} chars")
                     
                     # Display summary
-                    with st.expander(f"View Summary", expanded=(i==1)):  # First one expanded
+                    with st.expander(f"View Full Analysis", expanded=(i==1)):
                         st.write(source['summary'])
+                        st.divider()
+                        st.caption(f"📌 Note: This source scores {score}/10 based on domain credibility, content depth, keyword relevance, and technical detail.")
                     
                     st.divider()
             
             # ========================================
             # PHASE 2 FINAL INSIGHT
             # ========================================
-            st.markdown("### ✨ Final Unified Insight")
+            st.markdown("### ✨ Expert Synthesis")
             
             with st.spinner("✨ Synthesizing all sources into final insight..."):
                 try:
@@ -2044,14 +2513,22 @@ MULTI-SOURCE ANALYSIS
             
             with col3:
                 try:
-                    pdf_path = create_pdf(export_content)
+                    # Use advanced PDF generation with merged insights
+                    pdf_path = create_advanced_pdf(
+                        summarized_sources, 
+                        original_query, 
+                        improved_query,
+                        mode,
+                        elapsed_time,
+                        merged_insights
+                    )
                     if pdf_path and os.path.exists(pdf_path):
                         with open(pdf_path, "rb") as f:
                             pdf_data = f.read()
                         st.download_button(
-                            label="Download as PDF",
+                            label="📄 Download Advanced PDF",
                             data=pdf_data,
-                            file_name="analysis_results.pdf",
+                            file_name="advanced_analysis_report.pdf",
                             mime="application/pdf",
                             use_container_width=True
                         )
