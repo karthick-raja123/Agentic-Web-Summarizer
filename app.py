@@ -19,11 +19,7 @@ try:
 except ImportError:
     GTTS_AVAILABLE = False
 
-try:
-    import speech_recognition as sr
-    SPEECH_RECOGNITION_AVAILABLE = True
-except ImportError:
-    SPEECH_RECOGNITION_AVAILABLE = False
+# Voice input removed - text only
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -73,27 +69,60 @@ def score_url_quality(url):
     # Default
     return (5, "Regular Tech Blog")
 
+def validate_query_input(query):
+    """
+    VALIDATION: Check query meets minimum requirements
+    
+    Rules:
+    1. Minimum 5 words
+    2. Must contain at least one meaningful keyword
+    3. Must be at least 20 characters
+    """
+    if not query or not query.strip():
+        return False, "Query cannot be empty"
+    
+    # Check minimum 20 characters
+    if len(query.strip()) < 20:
+        return False, "⚠️ Query too short (minimum 20 characters)"
+    
+    # Check minimum 5 words
+    words = query.strip().split()
+    if len(words) < 5:
+        return False, f"⚠️ Query too short ({len(words)} words). Minimum 5 words required."
+    
+    # Check for meaningful keywords (not just common words)
+    common_words = {"the", "a", "an", "and", "or", "is", "are", "be", "to", "of", "in", "on", "at", "by", "for", "with", "from"}
+    meaningful_words = [w.lower() for w in words if w.lower() not in common_words]
+    
+    if len(meaningful_words) < 2:
+        return False, "⚠️ Query must contain at least 2 meaningful keywords (not just common words)"
+    
+    return True, "✅ Query valid"
+
 def generate_query_improvement(original_query):
     """
-    PHASE 3: Improve user query for better search results
+    PHASE 3: Improve user query for better search results using LLM
     
-    Converts vague queries to specific search queries
+    Converts simple queries to detailed, specific search queries
+    Example:
+    - Input: "microservices"
+    - Output: "Explain microservices architecture with advantages, disadvantages, real-world use cases"
     """
-    print(f"\n🔍 PHASE 3: Improving query...")
+    print(f"\n🔍 PHASE 3: Improving query with LLM...")
     
-    prompt = f"""You are a search expert. Improve this query for better web search results.
-Make it more specific and add relevant keywords.
+    prompt = f"""You are a search expert. Enhance this query to make it more specific and detailed for better web search results.
+Add context, depth, and relevant aspects that should be covered.
 
 Original query: "{original_query}"
 
-Return ONLY the improved query (no explanation, just the query):"""
+Return ONLY the enhanced query (make it detailed and specific, including aspects like advantages, disadvantages, applications, real-world examples):"""
     
     try:
         model = genai.GenerativeModel("gemini-2.5-flash")
-        response = model.generate_content(prompt, stream=False)
+        response = model.generate_content(prompt, stream=False, timeout=30)
         improved = response.text.strip().encode("utf-8", errors="ignore").decode("utf-8")
         
-        if improved and len(improved) > 5:
+        if improved and len(improved) > len(original_query):
             print(f"✅ Improved query: {improved}")
             return improved
     except Exception as e:
@@ -1199,36 +1228,7 @@ def clean_for_audio(text):
     
     return text[:2000]  # Limit to 2000 chars for TTS
 
-def transcribe_audio(audio_bytes):
-    """Transcribe audio from bytes to text using speech recognition"""
-    if not SPEECH_RECOGNITION_AVAILABLE:
-        return None
-    
-    try:
-        from io import BytesIO
-        import wave
-        
-        # Convert bytes to audio file
-        recognizer = sr.Recognizer()
-        
-        # Create audio data from bytes
-        audio_data = sr.AudioData(audio_bytes, 44100, 2)
-        
-        print("🎤 Transcribing audio...")
-        # Use Google Speech Recognition (free, no API key needed)
-        text = recognizer.recognize_google(audio_data)
-        print(f"✅ Transcribed: {len(text)} chars")
-        return text
-        
-    except sr.UnknownValueError:
-        st.warning("Could not understand audio. Try speaking more clearly.")
-        return None
-    except sr.RequestError as e:
-        st.warning(f"Speech recognition service error: {str(e)[:100]}")
-        return None
-    except Exception as e:
-        print(f"Transcription error: {str(e)[:100]}")
-        return None
+# Audio transcription removed - text input only
 
 def generate_tts(summary_text):
     """Generate text-to-speech from summary with FIXED unicode handling"""
@@ -1372,69 +1372,50 @@ with st.sidebar:
         st.caption("No search history yet")
 
 # ============================================================================
-# INPUT SECTION
+# INPUT SECTION - TEXT ONLY
 # ============================================================================
 st.markdown("### What do you want to learn about?")
+st.markdown("*Please enter at least 5 words with meaningful keywords*")
 
-# Voice input option
-st.markdown("#### Input Methods")
-input_method = st.radio("Choose input method:", ["Text", "Voice"], horizontal=True)
+# Example queries
+example_queries = [
+    "How machine learning improves healthcare outcomes",
+    "Artificial intelligence applications explained in detail",
+    "Climate change solutions and renewable energy transition",
+    "Blockchain technology basics and real-world applications",
+    "Cybersecurity best practices and threat prevention methods"
+]
 
-if input_method == "Voice":
-    st.info("🎤 Click the microphone button below to record your query")
-    audio_input = st.audio_input("Record your question:")
-    
-    if audio_input:
-        st.info("🔄 Transcribing your audio...")
-        # Transcribe audio to text
-        if SPEECH_RECOGNITION_AVAILABLE:
-            transcribed_query = transcribe_audio(audio_input.read())
-            if transcribed_query:
-                query = transcribed_query
-                st.success(f"✅ Transcribed: {query}")
-            else:
-                st.error("Could not transcribe audio. Try again or use text input.")
-                query = ""
-        else:
-            st.warning("Voice input not available. Using text input instead.")
-            query = st.text_input(
-                "Enter your topic:",
-                placeholder="e.g., 'artificial intelligence in healthcare'",
-                label_visibility="collapsed"
-            )
-else:
-    # Text input
-    # Example queries
-    example_queries = [
-        "How machine learning improves healthcare outcomes",
-        "Artificial intelligence applications explained",
-        "Climate change solutions and renewable energy",
-        "Blockchain technology basics",
-        "Cybersecurity best practices 2024"
-    ]
+col1, col2, col3 = st.columns([2.5, 0.75, 0.75])
+with col1:
+    # Check if reusing from history
+    initial_value = st.session_state.get("reuse_query", "")
+    query = st.text_input(
+        "Enter your topic:",
+        placeholder="e.g., 'microservices architecture advantages and disadvantages'",
+        value=initial_value,
+        label_visibility="collapsed"
+    )
+    if initial_value:
+        del st.session_state["reuse_query"]
 
-    col1, col2, col3 = st.columns([2.5, 0.75, 0.75])
-    with col1:
-        # Check if reusing from history
-        initial_value = st.session_state.get("reuse_query", "")
-        query = st.text_input(
-            "Enter your topic:",
-            placeholder="e.g., 'artificial intelligence in healthcare'",
-            value=initial_value,
-            label_visibility="collapsed"
-        )
-        if initial_value:
-            del st.session_state["reuse_query"]
+with col2:
+    if st.button("Examples", use_container_width=True):
+        with st.expander("Example Queries", expanded=True):
+            for i, example in enumerate(example_queries, 1):
+                st.write(f"• {example}")
 
-    with col2:
-        if st.button("Examples", use_container_width=True):
-            with st.expander("Example Queries", expanded=True):
-                for i, example in enumerate(example_queries, 1):
-                    st.write(f"• {example}")
+with col3:
+    if st.button("Clear", use_container_width=True):
+        st.rerun()
 
-    with col3:
-        if st.button("Clear", use_container_width=True):
-            st.rerun()
+# Display validation hint
+if query:
+    is_valid, validation_msg = validate_query_input(query)
+    if is_valid:
+        st.success(validation_msg)
+    else:
+        st.warning(validation_msg)
 
 st.divider()
 
@@ -1457,8 +1438,11 @@ with col_retry:
     retry_clicked = st.button("Retry", use_container_width=True)
 
 if search_clicked:
-    if query.strip() == "":
-        st.warning("⚠️ Please enter a topic to proceed.")
+    # VALIDATE INPUT FIRST
+    is_valid, validation_msg = validate_query_input(query)
+    
+    if not is_valid:
+        st.error(validation_msg)
     else:
         # MAIN TRY-EXCEPT: Wrap ENTIRE pipeline to prevent crashes
         try:
